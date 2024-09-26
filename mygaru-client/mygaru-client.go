@@ -11,8 +11,9 @@ import (
 )
 
 type MyGaru struct {
-	profileId uint32
-	client    *fasthttp.Client
+	profileId       uint32
+	deadlineTimeout time.Duration
+	client          *fasthttp.Client
 }
 
 const (
@@ -28,13 +29,18 @@ const (
 	IdentifierTypeOTP
 )
 
-func Init(profileId uint32, readTimeout time.Duration) *MyGaru {
+func Init(profileId uint32, deadlineTimeout time.Duration) *MyGaru {
 	return &MyGaru{
 		profileId: profileId,
 		client: &fasthttp.Client{
-			Name:        fmt.Sprintf("mygaru-client-%d", profileId),
-			ReadTimeout: readTimeout,
+			MaxConnsPerHost:     5000,
+			ReadTimeout:         3 * time.Second,
+			WriteTimeout:        3 * time.Second,
+			ReadBufferSize:      16 * 1024,
+			MaxIdleConnDuration: 60 * time.Second,
+			MaxResponseBodySize: 1024 * 1024, // 1Kb
 		},
+		deadlineTimeout: deadlineTimeout,
 	}
 }
 
@@ -47,8 +53,10 @@ func (myg *MyGaru) Check(uid string, segmentId uint32, identType IdentifierType)
 	req := fasthttp.AcquireRequest()
 	resp := fasthttp.AcquireResponse()
 
-	defer fasthttp.ReleaseRequest(req)
-	defer fasthttp.ReleaseResponse(resp)
+	defer func() {
+		fasthttp.ReleaseRequest(req)
+		fasthttp.ReleaseResponse(resp)
+	}()
 
 	path := fmt.Sprintf("/segments/check?segmentId=%d&clientId=%d", segmentId, myg.profileId)
 
@@ -64,13 +72,13 @@ func (myg *MyGaru) Check(uid string, segmentId uint32, identType IdentifierType)
 	req.SetRequestURI(baseURI + path)
 	req.Header.SetMethod(fasthttp.MethodGet)
 
-	err := myg.client.Do(req, resp)
+	err := myg.client.DoDeadline(req, resp, time.Now().Add(myg.deadlineTimeout))
 	if err != nil {
 		return false, err
 	}
 
 	if resp.StatusCode() != fasthttp.StatusOK {
-		return false, fmt.Errorf("%d: %s", resp.StatusCode(), resp.Body())
+		return false, fmt.Errorf("not 200 ok, got = %d, want 200, host = %q", resp.StatusCode(), req.URI().String())
 	}
 
 	var checkResult checkResult
@@ -96,8 +104,10 @@ func (myg *MyGaru) Scan(uids []string, segmentId uint32) (float32, error) {
 	req := fasthttp.AcquireRequest()
 	resp := fasthttp.AcquireResponse()
 
-	defer fasthttp.ReleaseRequest(req)
-	defer fasthttp.ReleaseResponse(resp)
+	defer func() {
+		fasthttp.ReleaseRequest(req)
+		fasthttp.ReleaseResponse(resp)
+	}()
 
 	path := fmt.Sprintf("/segments/scan?segmentId=%d&clientId=%d", segmentId, myg.profileId)
 
@@ -106,13 +116,13 @@ func (myg *MyGaru) Scan(uids []string, segmentId uint32) (float32, error) {
 
 	req.SetBodyString(strings.Join(uids, ",\n"))
 
-	err := myg.client.Do(req, resp)
+	err := myg.client.DoDeadline(req, resp, time.Now().Add(myg.deadlineTimeout))
 	if err != nil {
 		return 0, err
 	}
 
 	if resp.StatusCode() != fasthttp.StatusOK {
-		return 0, fmt.Errorf("%d: %s", resp.StatusCode(), resp.Body())
+		return 0, fmt.Errorf("not 200 ok, got = %d, want 200, host = %q", resp.StatusCode(), req.URI().String())
 	}
 
 	var scanResult scanResult
@@ -129,15 +139,17 @@ func (myg *MyGaru) Scan(uids []string, segmentId uint32) (float32, error) {
 // uids must be list of identifiers separated by ",\n"
 func (myg *MyGaru) ScanBytes(uids []byte, segmentId uint32) (float32, error) {
 	cnt := bytes.Count(uids, []byte(","))
-	if cnt < scanUIDMinLimit {
+	if cnt < scanUIDMinLimit-1 {
 		return 0.0, fmt.Errorf("please input at least %d uids", scanUIDMinLimit)
 	}
 
 	req := fasthttp.AcquireRequest()
 	resp := fasthttp.AcquireResponse()
 
-	defer fasthttp.ReleaseRequest(req)
-	defer fasthttp.ReleaseResponse(resp)
+	defer func() {
+		fasthttp.ReleaseRequest(req)
+		fasthttp.ReleaseResponse(resp)
+	}()
 
 	path := fmt.Sprintf("/segments/scan?segmentId=%d&clientId=%d", segmentId, myg.profileId)
 
@@ -146,13 +158,13 @@ func (myg *MyGaru) ScanBytes(uids []byte, segmentId uint32) (float32, error) {
 
 	req.SetBody(uids)
 
-	err := myg.client.Do(req, resp)
+	err := myg.client.DoDeadline(req, resp, time.Now().Add(myg.deadlineTimeout))
 	if err != nil {
 		return 0, err
 	}
 
 	if resp.StatusCode() != fasthttp.StatusOK {
-		return 0, fmt.Errorf("%d: %s", resp.StatusCode(), resp.Body())
+		return 0, fmt.Errorf("not 200 ok, got = %d, want 200, host = %q", resp.StatusCode(), req.URI().String())
 	}
 
 	var scanResult scanResult
@@ -171,8 +183,10 @@ func (myg *MyGaru) ScanReader(reader io.Reader, segmentId uint32) (float32, erro
 	req := fasthttp.AcquireRequest()
 	resp := fasthttp.AcquireResponse()
 
-	defer fasthttp.ReleaseRequest(req)
-	defer fasthttp.ReleaseResponse(resp)
+	defer func() {
+		fasthttp.ReleaseRequest(req)
+		fasthttp.ReleaseResponse(resp)
+	}()
 
 	path := fmt.Sprintf("/segments/scan?segmentId=%d&clientId=%d", segmentId, myg.profileId)
 
@@ -181,13 +195,13 @@ func (myg *MyGaru) ScanReader(reader io.Reader, segmentId uint32) (float32, erro
 
 	req.SetBodyStream(reader, -1)
 
-	err := myg.client.Do(req, resp)
+	err := myg.client.DoDeadline(req, resp, time.Now().Add(myg.deadlineTimeout))
 	if err != nil {
 		return 0, err
 	}
 
 	if resp.StatusCode() != fasthttp.StatusOK {
-		return 0, fmt.Errorf("%d: %s", resp.StatusCode(), resp.Body())
+		return 0, fmt.Errorf("not 200 ok, got = %d, want 200, host = %q", resp.StatusCode(), req.URI().String())
 	}
 
 	var scanResult scanResult

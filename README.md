@@ -1,8 +1,13 @@
 # dcr-sdk
 
+```sh
+GOPRIVATE=github.com go get github.com/mygaru/dcr-sdk/myg-client
+```
+
+
 mygaru-client allows checking if UID is in a segment or to scan a list of them and see the overlap % between your list and the segment.
 
-### Scanning
+### Scan
 Note: the minimum limit of UIDs to send is 100.
 
 ```go
@@ -24,4 +29,10 @@ inter2, err := mygClient.ScanReader(bytes.NewBuffer(uidsBytes), segmentId)
 
 // in case you're reading the uids from a file, network response, etc.
 inter3, err := mygClient.ScanBytes(uidsBytes, segmentId)
+```
+
+### Check
+```go
+mygClient := Init(241, 30*time.Second)
+ok, err := mygClient.Check("acefwevreger9", 1000002, IdentifierTypeExternal)
 ```

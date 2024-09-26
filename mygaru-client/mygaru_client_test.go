@@ -17,6 +17,7 @@ func TestSDK_Scan(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		uids[i] = fmt.Sprintf("acefwevreger%d", i)
 	}
+
 	inter1, err := mygClient.Scan(uids, segmentId)
 	assert.Nil(t, err)
 
