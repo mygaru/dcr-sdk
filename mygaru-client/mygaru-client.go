@@ -24,8 +24,7 @@ type MyGaru struct {
 }
 
 const (
-	baseURI = "http://localhost:8080"
-	//baseURI = "https://cloud.mgaru.dev"
+	baseURI = "https://cloud.mgaru.dev"
 	// minimum nr identifiers for a scan request
 	scanUIDMinLimit = 100
 )
