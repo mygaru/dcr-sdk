@@ -32,10 +32,13 @@ func TestSDK_Scan(t *testing.T) {
 }
 
 func TestSDK_Check_ExternalUID(t *testing.T) {
-	mygClient := Init(241, 30*time.Second)
+	mygClient := Init(242, 30*time.Second)
 
-	ok, err := mygClient.Check("acefwevreger9", 1000002, IdentifierTypeExternal)
+	segmentIds := []uint32{24, 11, 15}
+
+	ok, err := mygClient.Check("acefwevreger9", segmentIds, IdentifierTypeExternal)
 	assert.Nil(t, err)
 
-	t.Log(ok)
+	t.Log("Ok:", ok)
+	t.Log("Error:", err)
 }
