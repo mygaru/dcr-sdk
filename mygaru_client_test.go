@@ -1,4 +1,4 @@
-package mygaru_client
+package dcr_sdk
 
 import (
 	"bytes"

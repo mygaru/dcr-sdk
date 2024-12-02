@@ -1,10 +1,12 @@
-package mygaru_client
+package dcr_sdk
 
 import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/aradilov/batcher"
 	"github.com/valyala/fasthttp"
+	"github.com/valyala/fastjson"
 	"io"
 	"strings"
 	"time"
@@ -14,6 +16,7 @@ type MyGaru struct {
 	profileId       uint32
 	deadlineTimeout time.Duration
 	client          *fasthttp.Client
+	batcher         *batcher.GenericBatcherTask[*Request, bool]
 }
 
 const (
@@ -29,8 +32,8 @@ const (
 	IdentifierTypeOTP
 )
 
-func Init(profileId uint32, deadlineTimeout time.Duration) *MyGaru {
-	return &MyGaru{
+func Init(profileId uint32, deadlineTimeout, batchTimeout time.Duration, batchSize int) *MyGaru {
+	myg := &MyGaru{
 		profileId: profileId,
 		client: &fasthttp.Client{
 			MaxConnsPerHost:     5000,
@@ -40,8 +43,94 @@ func Init(profileId uint32, deadlineTimeout time.Duration) *MyGaru {
 			MaxIdleConnDuration: 60 * time.Second,
 			MaxResponseBodySize: 1024 * 1024, // 1Kb
 		},
+		batcher: &batcher.GenericBatcherTask[*Request, bool]{
+			MaxBatchSize: batchSize,
+			QueueSize:    3 * batchSize,
+			MaxDelay:     batchTimeout,
+		},
 		deadlineTimeout: deadlineTimeout,
 	}
+
+	myg.batcher.Func = myg.processBatch
+
+	return myg
+}
+
+func (myg *MyGaru) processBatch(tasks []*batcher.Task[*Request, bool]) {
+	requests := make(map[string]*fasthttp.Request)
+	uidToTasks := make(map[string][]*batcher.Task[*Request, bool])
+
+	for _, task := range tasks {
+		req, ok := requests[task.Req.uid]
+		if !ok {
+			requests[task.Req.uid] = newRequest(task.Req.uid, task.Req.identType, task.Req.segmentId, myg.profileId)
+		} else {
+			req.URI().QueryArgs().Add("segmentId", fmt.Sprintf("%d", task.Req.segmentId))
+		}
+
+		uidToTasks[task.Req.uid] = append(uidToTasks[task.Req.uid], task)
+	}
+
+	for uid, req := range requests {
+		resp := fasthttp.AcquireResponse()
+		err := myg.client.DoDeadline(req, resp, time.Now().Add(myg.deadlineTimeout))
+		if err != nil {
+			for _, task := range uidToTasks[uid] {
+				task.Done(err)
+			}
+		}
+
+		v, err := fastjson.ParseBytes(resp.Body())
+		if err != nil {
+			for _, task := range uidToTasks[uid] {
+				task.Done(err)
+			}
+		}
+
+		// Match the response or error to the original tasks
+		for _, task := range uidToTasks[uid] {
+			if err != nil {
+				task.Done(err)
+				continue
+			}
+
+			r := v.Get(fmt.Sprintf("%d", task.Req.segmentId))
+			if r == nil {
+				task.Done(fmt.Errorf("not found"))
+				continue
+			}
+
+			if r.GetBool("succes") {
+				task.Res = r.GetBool("ok")
+			} else {
+				task.Done(fmt.Errorf("%s", r.GetStringBytes("error")))
+			}
+
+		}
+
+		fasthttp.ReleaseResponse(resp)
+		fasthttp.ReleaseRequest(req)
+	}
+
+}
+
+func newRequest(uid string, identifierType IdentifierType, clientId, segmentId uint32) *fasthttp.Request {
+	req := fasthttp.AcquireRequest()
+
+	path := fmt.Sprintf("/segments/check?clientId=%d&segmentId=%d", clientId, segmentId)
+
+	switch identifierType {
+	case IdentifierTypeExternal:
+		path += fmt.Sprintf("&externalUID=%s", uid)
+	case IdentifierTypeOTP:
+		path += fmt.Sprintf("&otp=%s", uid)
+	default:
+		path += fmt.Sprintf("&otp=%s", uid)
+	}
+
+	req.SetRequestURI(baseURI + path)
+	req.Header.SetMethod(fasthttp.MethodGet)
+	return req
 }
 
 type checkResult struct {
