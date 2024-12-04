@@ -2,12 +2,13 @@ package dcr_sdk
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"github.com/aradilov/batcher"
 	"github.com/valyala/fasthttp"
 	"github.com/valyala/fastjson"
+	"gitlab.adtelligent.com/common/shared/osexit"
 	"io"
+	"os"
 	"strings"
 	"time"
 )
@@ -52,136 +53,25 @@ func Init(profileId uint32, deadlineTimeout, batchTimeout time.Duration, batchSi
 	}
 
 	myg.batcher.Func = myg.processBatch
+	myg.batcher.Start()
+
+	osexit.Before(func(signal os.Signal) {
+		myg.batcher.Stop()
+	})
 
 	return myg
 }
 
-func (myg *MyGaru) processBatch(tasks []*batcher.Task[*Request, bool]) {
-	requests := make(map[string]*fasthttp.Request)
-	uidToTasks := make(map[string][]*batcher.Task[*Request, bool])
-
-	for _, task := range tasks {
-		req, ok := requests[task.Req.uid]
-		if !ok {
-			requests[task.Req.uid] = newRequest(task.Req.uid, task.Req.identType, task.Req.segmentId, myg.profileId)
-		} else {
-			req.URI().QueryArgs().Add("segmentId", fmt.Sprintf("%d", task.Req.segmentId))
-		}
-
-		uidToTasks[task.Req.uid] = append(uidToTasks[task.Req.uid], task)
-	}
-
-	for uid, req := range requests {
-		resp := fasthttp.AcquireResponse()
-		err := myg.client.DoDeadline(req, resp, time.Now().Add(myg.deadlineTimeout))
-		if err != nil {
-			for _, task := range uidToTasks[uid] {
-				task.Done(err)
-			}
-		}
-
-		v, err := fastjson.ParseBytes(resp.Body())
-		if err != nil {
-			for _, task := range uidToTasks[uid] {
-				task.Done(err)
-			}
-		}
-
-		// Match the response or error to the original tasks
-		for _, task := range uidToTasks[uid] {
-			if err != nil {
-				task.Done(err)
-				continue
-			}
-
-			r := v.Get(fmt.Sprintf("%d", task.Req.segmentId))
-			if r == nil {
-				task.Done(fmt.Errorf("not found"))
-				continue
-			}
-
-			if r.GetBool("succes") {
-				task.Res = r.GetBool("ok")
-			} else {
-				task.Done(fmt.Errorf("%s", r.GetStringBytes("error")))
-			}
-
-		}
-
-		fasthttp.ReleaseResponse(resp)
-		fasthttp.ReleaseRequest(req)
-	}
-
-}
-
-func newRequest(uid string, identifierType IdentifierType, clientId, segmentId uint32) *fasthttp.Request {
-	req := fasthttp.AcquireRequest()
-
-	path := fmt.Sprintf("/segments/check?clientId=%d&segmentId=%d", clientId, segmentId)
-
-	switch identifierType {
-	case IdentifierTypeExternal:
-		path += fmt.Sprintf("&externalUID=%s", uid)
-	case IdentifierTypeOTP:
-		path += fmt.Sprintf("&otp=%s", uid)
-	default:
-		path += fmt.Sprintf("&otp=%s", uid)
-	}
-
-	req.SetRequestURI(baseURI + path)
-	req.Header.SetMethod(fasthttp.MethodGet)
-	return req
-}
-
-type checkResult struct {
-	OK bool `json:"ok"`
-}
-
 // Check checks whether an identifier is in a segment.
 func (myg *MyGaru) Check(uid string, segmentId uint32, identType IdentifierType) (bool, error) {
-	req := fasthttp.AcquireRequest()
-	resp := fasthttp.AcquireResponse()
+	r := acquireRequest()
+	r.uid = uid
+	r.identType = identType
+	r.segmentId = segmentId
 
-	defer func() {
-		fasthttp.ReleaseRequest(req)
-		fasthttp.ReleaseResponse(resp)
-	}()
-
-	path := fmt.Sprintf("/segments/check?segmentId=%d&clientId=%d", segmentId, myg.profileId)
-
-	switch identType {
-	case IdentifierTypeExternal:
-		path += fmt.Sprintf("&externalUID=%s", uid)
-	case IdentifierTypeOTP:
-		path += fmt.Sprintf("&otp=%s", uid)
-	default:
-		path += fmt.Sprintf("&otp=%s", uid)
-	}
-
-	req.SetRequestURI(baseURI + path)
-	req.Header.SetMethod(fasthttp.MethodGet)
-
-	err := myg.client.DoDeadline(req, resp, time.Now().Add(myg.deadlineTimeout))
-	if err != nil {
-		return false, err
-	}
-
-	if resp.StatusCode() != fasthttp.StatusOK {
-		return false, fmt.Errorf("not 200 ok, got = %d, want 200, host = %q", resp.StatusCode(), req.URI().String())
-	}
-
-	var checkResult checkResult
-	err = json.Unmarshal(resp.Body(), &checkResult)
-
-	if err != nil {
-		return false, err
-	}
-
-	return checkResult.OK, nil
-}
-
-type scanResult struct {
-	Intersection float32 `json:"intersection"`
+	ok, err := myg.batcher.Do(r)
+	releaseRequest(r)
+	return ok, err
 }
 
 // Scan returns the percentage of identifiers contained in some segment.
@@ -214,14 +104,8 @@ func (myg *MyGaru) Scan(uids []string, segmentId uint32) (float32, error) {
 		return 0, fmt.Errorf("not 200 ok, got = %d, want 200, host = %q", resp.StatusCode(), req.URI().String())
 	}
 
-	var scanResult scanResult
-	err = json.Unmarshal(resp.Body(), &scanResult)
-
-	if err != nil {
-		return 0, err
-	}
-
-	return scanResult.Intersection, nil
+	inter := fastjson.GetFloat64(resp.Body(), "intersection")
+	return float32(inter), nil
 }
 
 // ScanBytes returns the percentage of identifiers contained in some segment.
@@ -256,14 +140,8 @@ func (myg *MyGaru) ScanBytes(uids []byte, segmentId uint32) (float32, error) {
 		return 0, fmt.Errorf("not 200 ok, got = %d, want 200, host = %q", resp.StatusCode(), req.URI().String())
 	}
 
-	var scanResult scanResult
-	err = json.Unmarshal(resp.Body(), &scanResult)
-
-	if err != nil {
-		return 0, err
-	}
-
-	return scanResult.Intersection, nil
+	inter := fastjson.GetFloat64(resp.Body(), "intersection")
+	return float32(inter), nil
 }
 
 // ScanReader returns the percentage of identifiers contained in some segment.
@@ -293,12 +171,6 @@ func (myg *MyGaru) ScanReader(reader io.Reader, segmentId uint32) (float32, erro
 		return 0, fmt.Errorf("not 200 ok, got = %d, want 200, host = %q", resp.StatusCode(), req.URI().String())
 	}
 
-	var scanResult scanResult
-	err = json.Unmarshal(resp.Body(), &scanResult)
-
-	if err != nil {
-		return 0, err
-	}
-
-	return scanResult.Intersection, nil
+	inter := fastjson.GetFloat64(resp.Body(), "intersection")
+	return float32(inter), nil
 }

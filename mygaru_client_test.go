@@ -3,14 +3,17 @@ package dcr_sdk
 import (
 	"bytes"
 	"fmt"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"math/rand"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
 
 func TestSDK_Scan(t *testing.T) {
-	mygClient := Init(241, 30*time.Second)
+	mygClient := Init(241, 30*time.Second, 5*time.Second, 300)
 	segmentId := uint32(1000002)
 
 	uids := make([]string, 100)
@@ -32,10 +35,31 @@ func TestSDK_Scan(t *testing.T) {
 }
 
 func TestSDK_Check_ExternalUID(t *testing.T) {
-	mygClient := Init(241, 30*time.Second)
+	mygClient := Init(6, 30*time.Second, 500*time.Millisecond, 50)
+	n := 100
+	sameUID := 10
+	segmentIDs := make([]uint32, n)
+	uids := make([]string, n)
+	wg := sync.WaitGroup{}
+	wg.Add(n)
 
-	ok, err := mygClient.Check("acefwevreger9", 1000002, IdentifierTypeExternal)
-	assert.Nil(t, err)
+	for i := 0; i < n; i++ {
+		segmentIDs[i] = rand.Uint32()
+		if i%sameUID == 0 {
+			uids[i] = uuid.NewString()
+		} else {
+			uids[i] = uids[i-1]
+		}
 
-	t.Log(ok)
+		go func(i int) {
+			ok, err := mygClient.Check(uids[i], segmentIDs[i], IdentifierTypeExternal)
+			assert.Nil(t, err)
+			if err == nil {
+				fmt.Printf("uid: %s, seg: %d, ok: %v\n", uids[i], segmentIDs[i], ok)
+			}
+			wg.Done()
+		}(i)
+	}
+
+	wg.Wait()
 }
