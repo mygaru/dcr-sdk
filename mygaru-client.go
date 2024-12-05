@@ -1,11 +1,14 @@
-package mygaru_client
+package dcr_sdk
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
+	"github.com/aradilov/batcher"
 	"github.com/valyala/fasthttp"
+	"github.com/valyala/fastjson"
+	"gitlab.adtelligent.com/common/shared/osexit"
 	"io"
+	"os"
 	"strings"
 	"time"
 )
@@ -14,6 +17,7 @@ type MyGaru struct {
 	profileId       uint32
 	deadlineTimeout time.Duration
 	client          *fasthttp.Client
+	batcher         *batcher.GenericBatcherTask[*Request, bool]
 }
 
 const (
@@ -29,8 +33,8 @@ const (
 	IdentifierTypeOTP
 )
 
-func Init(profileId uint32, deadlineTimeout time.Duration) *MyGaru {
-	return &MyGaru{
+func Init(profileId uint32, deadlineTimeout, batchTimeout time.Duration, batchSize int) *MyGaru {
+	myg := &MyGaru{
 		profileId: profileId,
 		client: &fasthttp.Client{
 			MaxConnsPerHost:     5000,
@@ -40,59 +44,34 @@ func Init(profileId uint32, deadlineTimeout time.Duration) *MyGaru {
 			MaxIdleConnDuration: 60 * time.Second,
 			MaxResponseBodySize: 1024 * 1024, // 1Kb
 		},
+		batcher: &batcher.GenericBatcherTask[*Request, bool]{
+			MaxBatchSize: batchSize,
+			QueueSize:    3 * batchSize,
+			MaxDelay:     batchTimeout,
+		},
 		deadlineTimeout: deadlineTimeout,
 	}
-}
 
-type checkResult struct {
-	OK bool `json:"ok"`
+	myg.batcher.Func = myg.processBatch
+	myg.batcher.Start()
+
+	osexit.Before(func(signal os.Signal) {
+		myg.batcher.Stop()
+	})
+
+	return myg
 }
 
 // Check checks whether an identifier is in a segment.
 func (myg *MyGaru) Check(uid string, segmentId uint32, identType IdentifierType) (bool, error) {
-	req := fasthttp.AcquireRequest()
-	resp := fasthttp.AcquireResponse()
+	r := acquireRequest()
+	r.uid = uid
+	r.identType = identType
+	r.segmentId = segmentId
 
-	defer func() {
-		fasthttp.ReleaseRequest(req)
-		fasthttp.ReleaseResponse(resp)
-	}()
-
-	path := fmt.Sprintf("/segments/check?segmentId=%d&clientId=%d", segmentId, myg.profileId)
-
-	switch identType {
-	case IdentifierTypeExternal:
-		path += fmt.Sprintf("&externalUID=%s", uid)
-	case IdentifierTypeOTP:
-		path += fmt.Sprintf("&otp=%s", uid)
-	default:
-		path += fmt.Sprintf("&otp=%s", uid)
-	}
-
-	req.SetRequestURI(baseURI + path)
-	req.Header.SetMethod(fasthttp.MethodGet)
-
-	err := myg.client.DoDeadline(req, resp, time.Now().Add(myg.deadlineTimeout))
-	if err != nil {
-		return false, err
-	}
-
-	if resp.StatusCode() != fasthttp.StatusOK {
-		return false, fmt.Errorf("not 200 ok, got = %d, want 200, host = %q", resp.StatusCode(), req.URI().String())
-	}
-
-	var checkResult checkResult
-	err = json.Unmarshal(resp.Body(), &checkResult)
-
-	if err != nil {
-		return false, err
-	}
-
-	return checkResult.OK, nil
-}
-
-type scanResult struct {
-	Intersection float32 `json:"intersection"`
+	ok, err := myg.batcher.Do(r)
+	releaseRequest(r)
+	return ok, err
 }
 
 // Scan returns the percentage of identifiers contained in some segment.
@@ -125,14 +104,8 @@ func (myg *MyGaru) Scan(uids []string, segmentId uint32) (float32, error) {
 		return 0, fmt.Errorf("not 200 ok, got = %d, want 200, host = %q", resp.StatusCode(), req.URI().String())
 	}
 
-	var scanResult scanResult
-	err = json.Unmarshal(resp.Body(), &scanResult)
-
-	if err != nil {
-		return 0, err
-	}
-
-	return scanResult.Intersection, nil
+	inter := fastjson.GetFloat64(resp.Body(), "intersection")
+	return float32(inter), nil
 }
 
 // ScanBytes returns the percentage of identifiers contained in some segment.
@@ -167,14 +140,8 @@ func (myg *MyGaru) ScanBytes(uids []byte, segmentId uint32) (float32, error) {
 		return 0, fmt.Errorf("not 200 ok, got = %d, want 200, host = %q", resp.StatusCode(), req.URI().String())
 	}
 
-	var scanResult scanResult
-	err = json.Unmarshal(resp.Body(), &scanResult)
-
-	if err != nil {
-		return 0, err
-	}
-
-	return scanResult.Intersection, nil
+	inter := fastjson.GetFloat64(resp.Body(), "intersection")
+	return float32(inter), nil
 }
 
 // ScanReader returns the percentage of identifiers contained in some segment.
@@ -204,12 +171,6 @@ func (myg *MyGaru) ScanReader(reader io.Reader, segmentId uint32) (float32, erro
 		return 0, fmt.Errorf("not 200 ok, got = %d, want 200, host = %q", resp.StatusCode(), req.URI().String())
 	}
 
-	var scanResult scanResult
-	err = json.Unmarshal(resp.Body(), &scanResult)
-
-	if err != nil {
-		return 0, err
-	}
-
-	return scanResult.Intersection, nil
+	inter := fastjson.GetFloat64(resp.Body(), "intersection")
+	return float32(inter), nil
 }
