@@ -29,8 +29,9 @@ const (
 type IdentifierType uint8
 
 const (
-	IdentifierTypeExternal IdentifierType = iota
+	IdentifierTypePartnerUID IdentifierType = iota
 	IdentifierTypeOTP
+	IdentifierTypeDeviceID
 )
 
 func Init(profileId uint32, deadlineTimeout, batchTimeout time.Duration, batchSize int) *MyGaru {
@@ -63,9 +64,9 @@ func Init(profileId uint32, deadlineTimeout, batchTimeout time.Duration, batchSi
 }
 
 // Check checks whether an identifier is in a segment.
-func (myg *MyGaru) Check(uid string, segmentId uint32, identType IdentifierType) (bool, error) {
+func (myg *MyGaru) Check(ident string, segmentId uint32, identType IdentifierType) (bool, error) {
 	r := acquireRequest()
-	r.uid = uid
+	r.uid = ident
 	r.identType = identType
 	r.segmentId = segmentId
 
@@ -75,9 +76,9 @@ func (myg *MyGaru) Check(uid string, segmentId uint32, identType IdentifierType)
 }
 
 // Scan returns the percentage of identifiers contained in some segment.
-func (myg *MyGaru) Scan(uids []string, segmentId uint32) (float32, error) {
-	if len(uids) < scanUIDMinLimit {
-		return 0.0, fmt.Errorf("please input at least %d uids", scanUIDMinLimit)
+func (myg *MyGaru) Scan(puids []string, segmentId uint32) (float32, error) {
+	if len(puids) < scanUIDMinLimit {
+		return 0.0, fmt.Errorf("please input at least %d puids", scanUIDMinLimit)
 	}
 
 	req := fasthttp.AcquireRequest()
@@ -88,12 +89,12 @@ func (myg *MyGaru) Scan(uids []string, segmentId uint32) (float32, error) {
 		fasthttp.ReleaseResponse(resp)
 	}()
 
-	path := fmt.Sprintf("/segments/scan?segmentId=%d&clientId=%d", segmentId, myg.profileId)
+	path := fmt.Sprintf("/segment/scan?segment_id=%d&client_id=%d", segmentId, myg.profileId)
 
 	req.SetRequestURI(baseURI + path)
 	req.Header.SetMethod(fasthttp.MethodPost)
 
-	req.SetBodyString(strings.Join(uids, ",\n"))
+	req.SetBodyString(strings.Join(puids, ",\n"))
 
 	err := myg.client.DoDeadline(req, resp, time.Now().Add(myg.deadlineTimeout))
 	if err != nil {
@@ -101,7 +102,7 @@ func (myg *MyGaru) Scan(uids []string, segmentId uint32) (float32, error) {
 	}
 
 	if resp.StatusCode() != fasthttp.StatusOK {
-		return 0, fmt.Errorf("not 200 ok, got = %d, want 200, host = %q", resp.StatusCode(), req.URI().String())
+		return 0, fmt.Errorf("request to host = %q  failed with code %d: %s", req.URI().String(), resp.StatusCode(), resp.Body())
 	}
 
 	inter := fastjson.GetFloat64(resp.Body(), "intersection")
@@ -109,11 +110,11 @@ func (myg *MyGaru) Scan(uids []string, segmentId uint32) (float32, error) {
 }
 
 // ScanBytes returns the percentage of identifiers contained in some segment.
-// uids must be list of identifiers separated by ",\n"
-func (myg *MyGaru) ScanBytes(uids []byte, segmentId uint32) (float32, error) {
-	cnt := bytes.Count(uids, []byte(","))
+// puids must be list of identifiers separated by ",\n"
+func (myg *MyGaru) ScanBytes(puids []byte, segmentId uint32) (float32, error) {
+	cnt := bytes.Count(puids, []byte(","))
 	if cnt < scanUIDMinLimit-1 {
-		return 0.0, fmt.Errorf("please input at least %d uids", scanUIDMinLimit)
+		return 0.0, fmt.Errorf("please input at least %d puids", scanUIDMinLimit)
 	}
 
 	req := fasthttp.AcquireRequest()
@@ -124,12 +125,12 @@ func (myg *MyGaru) ScanBytes(uids []byte, segmentId uint32) (float32, error) {
 		fasthttp.ReleaseResponse(resp)
 	}()
 
-	path := fmt.Sprintf("/segments/scan?segmentId=%d&clientId=%d", segmentId, myg.profileId)
+	path := fmt.Sprintf("/segment/scan?segment_id=%d&client_id=%d", segmentId, myg.profileId)
 
 	req.SetRequestURI(baseURI + path)
 	req.Header.SetMethod(fasthttp.MethodPost)
 
-	req.SetBody(uids)
+	req.SetBody(puids)
 
 	err := myg.client.DoDeadline(req, resp, time.Now().Add(myg.deadlineTimeout))
 	if err != nil {
@@ -137,7 +138,7 @@ func (myg *MyGaru) ScanBytes(uids []byte, segmentId uint32) (float32, error) {
 	}
 
 	if resp.StatusCode() != fasthttp.StatusOK {
-		return 0, fmt.Errorf("not 200 ok, got = %d, want 200, host = %q", resp.StatusCode(), req.URI().String())
+		return 0, fmt.Errorf("request to host = %q  failed with code %d: %s", req.URI().String(), resp.StatusCode(), resp.Body())
 	}
 
 	inter := fastjson.GetFloat64(resp.Body(), "intersection")
@@ -145,7 +146,7 @@ func (myg *MyGaru) ScanBytes(uids []byte, segmentId uint32) (float32, error) {
 }
 
 // ScanReader returns the percentage of identifiers contained in some segment.
-// Use to scan uids from files, nework responses, etc.
+// Use to scan puids from files, nework responses, etc.
 func (myg *MyGaru) ScanReader(reader io.Reader, segmentId uint32) (float32, error) {
 	req := fasthttp.AcquireRequest()
 	resp := fasthttp.AcquireResponse()
@@ -155,7 +156,7 @@ func (myg *MyGaru) ScanReader(reader io.Reader, segmentId uint32) (float32, erro
 		fasthttp.ReleaseResponse(resp)
 	}()
 
-	path := fmt.Sprintf("/segments/scan?segmentId=%d&clientId=%d", segmentId, myg.profileId)
+	path := fmt.Sprintf("/segment/scan?segment_id=%d&client_id=%d", segmentId, myg.profileId)
 
 	req.SetRequestURI(baseURI + path)
 	req.Header.SetMethod(fasthttp.MethodPost)
@@ -168,7 +169,7 @@ func (myg *MyGaru) ScanReader(reader io.Reader, segmentId uint32) (float32, erro
 	}
 
 	if resp.StatusCode() != fasthttp.StatusOK {
-		return 0, fmt.Errorf("not 200 ok, got = %d, want 200, host = %q", resp.StatusCode(), req.URI().String())
+		return 0, fmt.Errorf("request to host = %q  failed with code %d: %s", req.URI().String(), resp.StatusCode(), resp.Body())
 	}
 
 	inter := fastjson.GetFloat64(resp.Body(), "intersection")
