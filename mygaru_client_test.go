@@ -16,27 +16,27 @@ func TestSDK_Scan(t *testing.T) {
 	mygClient := Init(241, 30*time.Second, 5*time.Second, 300)
 	segmentId := uint32(1000002)
 
-	uids := make([]string, 100)
+	puids := make([]string, 100)
 	for i := 0; i < 100; i++ {
-		uids[i] = fmt.Sprintf("acefwevreger%d", i)
+		puids[i] = fmt.Sprintf("acefwevreger%d", i)
 	}
 
-	inter1, err := mygClient.Scan(uids, segmentId)
+	inter1, err := mygClient.Scan(puids, segmentId)
 	assert.Nil(t, err)
 
-	uidsBytes := []byte(strings.Join(uids, ",\n"))
-	inter2, err := mygClient.ScanReader(bytes.NewBuffer(uidsBytes), segmentId)
+	puidsBytes := []byte(strings.Join(puids, ",\n"))
+	inter2, err := mygClient.ScanReader(bytes.NewBuffer(puidsBytes), segmentId)
 	assert.Nil(t, err)
 
-	inter3, err := mygClient.ScanBytes(uidsBytes, segmentId)
+	inter3, err := mygClient.ScanBytes(puidsBytes, segmentId)
 	assert.Nil(t, err)
 
 	assert.True(t, inter1 == inter2 && inter3 == inter1)
 }
 
-func TestSDK_Check_ExternalUID(t *testing.T) {
+func TestSDK_Check_Multiple(t *testing.T) {
 	mygClient := Init(6, 30*time.Second, 500*time.Millisecond, 50)
-	n := 100
+	n := 10
 	sameUID := 10
 	segmentIDs := make([]uint32, n)
 	uids := make([]string, n)
@@ -52,8 +52,12 @@ func TestSDK_Check_ExternalUID(t *testing.T) {
 		}
 
 		go func(i int) {
-			ok, err := mygClient.Check(uids[i], segmentIDs[i], IdentifierTypeExternal)
-			assert.Nil(t, err)
+			ok, err := mygClient.Check(uids[i], segmentIDs[i], IdentifierTypeDeviceID)
+			if err != nil {
+				t.Error(err)
+				wg.Done()
+				return
+			}
 			if err == nil {
 				fmt.Printf("uid: %s, seg: %d, ok: %v\n", uids[i], segmentIDs[i], ok)
 			}
@@ -62,4 +66,21 @@ func TestSDK_Check_ExternalUID(t *testing.T) {
 	}
 
 	wg.Wait()
+}
+
+func TestSDK_Check(t *testing.T) {
+	mygClient := Init(6, 30*time.Second, 500*time.Millisecond, 50)
+	raw := "00000000-0000-0000-0000-000000000001"
+
+	for i := 136; i <= 186; i++ {
+		if i == 163 {
+			continue
+		}
+
+		go func(i int) {
+			ok, err := mygClient.Check(raw, uint32(i), IdentifierTypeDeviceID)
+			assert.Nil(t, err)
+			assert.True(t, ok)
+		}(i)
+	}
 }

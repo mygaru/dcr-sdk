@@ -5,6 +5,7 @@ import (
 	"github.com/aradilov/batcher"
 	"github.com/valyala/fasthttp"
 	"github.com/valyala/fastjson"
+	"net/url"
 	"sync"
 	"time"
 )
@@ -38,7 +39,7 @@ func (myg *MyGaru) processBatch(tasks []*batcher.Task[*Request, bool]) {
 		if !ok {
 			requests[task.Req.uid] = newRequest(task.Req.uid, task.Req.identType, myg.profileId, task.Req.segmentId)
 		} else {
-			req.URI().QueryArgs().Add("segmentId", fmt.Sprintf("%d", task.Req.segmentId))
+			req.URI().QueryArgs().Add("segment_id", fmt.Sprintf("%d", task.Req.segmentId))
 		}
 
 		uidToTasks[task.Req.uid] = append(uidToTasks[task.Req.uid], task)
@@ -50,6 +51,12 @@ func (myg *MyGaru) processBatch(tasks []*batcher.Task[*Request, bool]) {
 		if err != nil {
 			for _, task := range uidToTasks[uid] {
 				task.Done(err)
+			}
+		}
+
+		if resp.StatusCode() != fasthttp.StatusOK {
+			for _, task := range uidToTasks[uid] {
+				task.Done(fmt.Errorf("request failed with status code %d: %s", resp.StatusCode(), resp.Body()))
 			}
 		}
 
@@ -69,16 +76,17 @@ func (myg *MyGaru) processBatch(tasks []*batcher.Task[*Request, bool]) {
 
 			r := v.Get(fmt.Sprintf("%d", task.Req.segmentId))
 			if r == nil {
-				task.Done(fmt.Errorf("not found segmentID in response"))
+				task.Done(fmt.Errorf("segment not found in response"))
 				continue
 			}
 
-			if r.GetBool("success") {
-				task.Res = r.GetBool("ok")
-				task.Done(nil)
-			} else {
-				task.Done(fmt.Errorf("%s", r.GetStringBytes("error")))
+			if err := r.GetStringBytes("error"); err != nil {
+				task.Done(fmt.Errorf("check unsuccessful: %s", err))
+				continue
 			}
+
+			task.Res = r.GetBool("ok")
+			task.Done(nil)
 		}
 
 		fasthttp.ReleaseResponse(resp)
@@ -86,18 +94,20 @@ func (myg *MyGaru) processBatch(tasks []*batcher.Task[*Request, bool]) {
 	}
 }
 
-func newRequest(uid string, identifierType IdentifierType, clientId, segmentId uint32) *fasthttp.Request {
+func newRequest(ident string, identifierType IdentifierType, clientId, segmentId uint32) *fasthttp.Request {
 	req := fasthttp.AcquireRequest()
-
-	path := fmt.Sprintf("/segments/check?clientId=%d&segmentId=%d", clientId, segmentId)
+	path := fmt.Sprintf("/segment/touch-multi?client_id=%d&segment_id=%d", clientId, segmentId)
+	ident = url.QueryEscape(ident)
 
 	switch identifierType {
-	case IdentifierTypeExternal:
-		path += fmt.Sprintf("&externalUID=%s", uid)
+	case IdentifierTypePartnerUID:
+		path += fmt.Sprintf("&partner_uid=%s", ident)
 	case IdentifierTypeOTP:
-		path += fmt.Sprintf("&otp=%s", uid)
+		path += fmt.Sprintf("&otp=%s", ident)
+	case IdentifierTypeDeviceID:
+		path += fmt.Sprintf("&device_id=%s", ident)
 	default:
-		path += fmt.Sprintf("&otp=%s", uid)
+		path += fmt.Sprintf("&otp=%s", ident)
 	}
 
 	req.SetRequestURI(baseURI + path)
