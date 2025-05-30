@@ -14,7 +14,7 @@ import (
 )
 
 type MyGaru struct {
-	profileId       uint32
+	authHeader      []byte
 	deadlineTimeout time.Duration
 	client          *fasthttp.Client
 	batcher         *batcher.GenericBatcherTask[*Request, bool]
@@ -34,9 +34,12 @@ const (
 	IdentifierTypeDeviceID
 )
 
-func Init(profileId uint32, deadlineTimeout, batchTimeout time.Duration, batchSize int) *MyGaru {
+func Init(token []byte, deadlineTimeout, batchTimeout time.Duration, batchSize int) *MyGaru {
+	authHeader := []byte("Bearer ")
+	authHeader = append(authHeader, token...)
+
 	myg := &MyGaru{
-		profileId: profileId,
+		authHeader: authHeader,
 		client: &fasthttp.Client{
 			MaxConnsPerHost:     5000,
 			ReadTimeout:         3 * time.Second,
@@ -89,10 +92,11 @@ func (myg *MyGaru) Scan(puids []string, segmentId uint32) (float32, error) {
 		fasthttp.ReleaseResponse(resp)
 	}()
 
-	path := fmt.Sprintf("/segment/scan?segment_id=%d&client_id=%d", segmentId, myg.profileId)
+	path := fmt.Sprintf("/segment/scan?segment_id=%d", segmentId)
 
 	req.SetRequestURI(baseURI + path)
 	req.Header.SetMethod(fasthttp.MethodPost)
+	req.Header.SetBytesV("Authorization", myg.authHeader)
 
 	req.SetBodyString(strings.Join(puids, ",\n"))
 
@@ -125,10 +129,11 @@ func (myg *MyGaru) ScanBytes(puids []byte, segmentId uint32) (float32, error) {
 		fasthttp.ReleaseResponse(resp)
 	}()
 
-	path := fmt.Sprintf("/segment/scan?segment_id=%d&client_id=%d", segmentId, myg.profileId)
+	path := fmt.Sprintf("/segment/scan?segment_id=%d", segmentId)
 
 	req.SetRequestURI(baseURI + path)
 	req.Header.SetMethod(fasthttp.MethodPost)
+	req.Header.SetBytesV("Authorization", myg.authHeader)
 
 	req.SetBody(puids)
 
@@ -156,10 +161,11 @@ func (myg *MyGaru) ScanReader(reader io.Reader, segmentId uint32) (float32, erro
 		fasthttp.ReleaseResponse(resp)
 	}()
 
-	path := fmt.Sprintf("/segment/scan?segment_id=%d&client_id=%d", segmentId, myg.profileId)
+	path := fmt.Sprintf("/segment/scan?segment_id=%d", segmentId)
 
 	req.SetRequestURI(baseURI + path)
 	req.Header.SetMethod(fasthttp.MethodPost)
+	req.Header.SetBytesV("Authorization", myg.authHeader)
 
 	req.SetBodyStream(reader, -1)
 

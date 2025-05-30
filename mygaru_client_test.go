@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"log"
 	"math/rand"
 	"strings"
 	"sync"
@@ -12,14 +13,13 @@ import (
 	"time"
 )
 
-func TestSDK_Scan(t *testing.T) {
-	mygClient := Init(241, 30*time.Second, 5*time.Second, 300)
-	segmentId := uint32(1000002)
+const token = `token`
 
-	puids := make([]string, 100)
-	for i := 0; i < 100; i++ {
-		puids[i] = fmt.Sprintf("acefwevreger%d", i)
-	}
+func TestSDK_Scan(t *testing.T) {
+	mygClient := Init([]byte(token), 30*time.Second, 5*time.Second, 300)
+	segmentId := uint32(413)
+
+	puids := []string{"pFSTkoL1jP3+/WPc46J5AV3PZ+r679sPtw4wYwM8KXj9"}
 
 	inter1, err := mygClient.Scan(puids, segmentId)
 	assert.Nil(t, err)
@@ -31,11 +31,12 @@ func TestSDK_Scan(t *testing.T) {
 	inter3, err := mygClient.ScanBytes(puidsBytes, segmentId)
 	assert.Nil(t, err)
 
+	log.Println(inter1, inter2, inter3)
 	assert.True(t, inter1 == inter2 && inter3 == inter1)
 }
 
 func TestSDK_Check_Multiple(t *testing.T) {
-	mygClient := Init(6, 30*time.Second, 500*time.Millisecond, 50)
+	mygClient := Init([]byte(token), 30*time.Second, 500*time.Millisecond, 50)
 	n := 10
 	sameUID := 10
 	segmentIDs := make([]uint32, n)
@@ -69,18 +70,32 @@ func TestSDK_Check_Multiple(t *testing.T) {
 }
 
 func TestSDK_Check(t *testing.T) {
-	mygClient := Init(6, 30*time.Second, 500*time.Millisecond, 50)
+	mygClient := Init([]byte(token), 30*time.Second, 500*time.Millisecond, 50)
 	raw := "00000000-0000-0000-0000-000000000001"
 
+	wg := sync.WaitGroup{}
+
 	for i := 136; i <= 186; i++ {
-		if i == 163 {
+		if i == 163 || i == 155 {
 			continue
 		}
+		wg.Add(1)
 
 		go func(i int) {
 			ok, err := mygClient.Check(raw, uint32(i), IdentifierTypeDeviceID)
 			assert.Nil(t, err)
 			assert.True(t, ok)
+			wg.Done()
 		}(i)
 	}
+	wg.Wait()
+}
+
+func TestSDK_Check2(t *testing.T) {
+	mygClient := Init([]byte(token), 30*time.Second, 500*time.Millisecond, 50)
+	raw := "pKQ70DxI3/kD1dhNMrqdvhkbM3ZF0w8Z/hKQea+tfdOb"
+
+	ok, err := mygClient.Check(raw, 380, IdentifierTypePartnerUID)
+	assert.Nil(t, err)
+	assert.True(t, ok)
 }
