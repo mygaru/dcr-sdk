@@ -37,7 +37,7 @@ func (myg *MyGaru) processBatch(tasks []*batcher.Task[*Request, bool]) {
 	for _, task := range tasks {
 		req, ok := requests[task.Req.uid]
 		if !ok {
-			requests[task.Req.uid] = newRequest(task.Req.uid, task.Req.identType, myg.profileId, task.Req.segmentId)
+			requests[task.Req.uid] = newRequest(task.Req.uid, task.Req.identType, task.Req.segmentId, myg.authHeader)
 		} else {
 			req.URI().QueryArgs().Add("segment_id", fmt.Sprintf("%d", task.Req.segmentId))
 		}
@@ -94,9 +94,10 @@ func (myg *MyGaru) processBatch(tasks []*batcher.Task[*Request, bool]) {
 	}
 }
 
-func newRequest(ident string, identifierType IdentifierType, clientId, segmentId uint32) *fasthttp.Request {
+func newRequest(ident string, identifierType IdentifierType, segmentId uint32, authHeader []byte) *fasthttp.Request {
 	req := fasthttp.AcquireRequest()
-	path := fmt.Sprintf("/segment/touch-multi?client_id=%d&segment_id=%d", clientId, segmentId)
+	path := fmt.Sprintf("/segment/touch-multi?segment_id=%d", segmentId)
+	req.Header.SetBytesV("Authorization", authHeader)
 	ident = url.QueryEscape(ident)
 
 	switch identifierType {
