@@ -52,12 +52,14 @@ func (myg *MyGaru) processBatch(tasks []*batcher.Task[*Request, bool]) {
 			for _, task := range uidToTasks[uid] {
 				task.Done(err)
 			}
+			return
 		}
 
 		if resp.StatusCode() != fasthttp.StatusOK {
 			for _, task := range uidToTasks[uid] {
 				task.Done(fmt.Errorf("request failed with status code %d: %s", resp.StatusCode(), resp.Body()))
 			}
+			return
 		}
 
 		v, err := fastjson.ParseBytes(resp.Body())
@@ -65,14 +67,11 @@ func (myg *MyGaru) processBatch(tasks []*batcher.Task[*Request, bool]) {
 			for _, task := range uidToTasks[uid] {
 				task.Done(err)
 			}
+			return
 		}
 
 		// Match the response or error to the original tasks
 		for _, task := range uidToTasks[uid] {
-			if err != nil {
-				task.Done(err)
-				continue
-			}
 
 			r := v.Get(fmt.Sprintf("%d", task.Req.segmentId))
 			if r == nil {

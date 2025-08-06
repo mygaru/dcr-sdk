@@ -9,6 +9,8 @@ github.com/andybalholm/brotli v1.1.1 h1:PR2pgnyFznKEugtsUo0xLdDop5SKXd5Qf5ysW+7X
 github.com/andybalholm/brotli v1.1.1/go.mod h1:05ib4cKhjx3OQYUY22hTVd34Bc8upXjOLL2rKwwZBoA=
 github.com/aradilov/batcher v0.0.0-20241107075431-3a9a4dc51971 h1:ixsJaYE+m702drKUE80WeQNT5uTSsk1XtQpZVaaoeEU=
 github.com/aradilov/batcher v0.0.0-20241107075431-3a9a4dc51971/go.mod h1:yN1VF+x4XIXxFAWIpsCcJE4CkKrBEeYrypWLc2DByyA=
+github.com/aradilov/batcher v0.0.0-20250306130141-f2f6af92a391 h1:Hq7V4W3jiZ0U33JK4vY+besU3hVCKBOQhSgFdfTLXPY=
+github.com/aradilov/batcher v0.0.0-20250306130141-f2f6af92a391/go.mod h1:yN1VF+x4XIXxFAWIpsCcJE4CkKrBEeYrypWLc2DByyA=
 github.com/beorn7/perks v0.0.0-20180321164747-3a771d992973/go.mod h1:Dwedo/Wpr24TaqPxmxbtue+5NUziq4I4S80YR8gNf3Q=
 github.com/beorn7/perks v1.0.0/go.mod h1:KWe93zE9D1o94FZ5RNwFwVgaQK1VOXiVxmqh+CedLV8=
 github.com/beorn7/perks v1.0.1/go.mod h1:G2ZrVWU2WbWT9wwq4/hrbKbnv/1ERSJQ0ibhJ6rlkpw=

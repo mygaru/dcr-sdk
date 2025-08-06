@@ -6,7 +6,7 @@ toolchain go1.22.10
 
 require (
 	github.com/Vertamedia/chproxy v1.14.0
-	github.com/aradilov/batcher v0.0.0-20241107075431-3a9a4dc51971
+	github.com/aradilov/batcher v0.0.0-20250306130141-f2f6af92a391
 	github.com/google/uuid v1.6.0
 	github.com/stretchr/testify v1.9.0
 	github.com/valyala/fasthttp v1.57.0
