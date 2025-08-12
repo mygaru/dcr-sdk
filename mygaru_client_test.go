@@ -6,14 +6,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"log"
-	"math/rand"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 )
 
-const token = `token`
+const token = "dsn"
 
 func TestSDK_Scan(t *testing.T) {
 	mygClient := Init([]byte(token), 30*time.Second, 5*time.Second, 300)
@@ -93,9 +92,9 @@ func TestSDK_Check(t *testing.T) {
 
 func TestSDK_Check2(t *testing.T) {
 	mygClient := Init([]byte(token), 30*time.Second, 500*time.Millisecond, 50)
-	raw := "pKQ70DxI3/kD1dhNMrqdvhkbM3ZF0w8Z/hKQea+tfdOb"
+	raw := "259f835567d099ee"
 
-	ok, err := mygClient.Check(raw, 380, IdentifierTypePartnerUID)
+	ok, err := mygClient.Check(raw, 307, IdentifierTypeExternalUID)
 	assert.Nil(t, err)
 	assert.True(t, ok)
 }

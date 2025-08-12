@@ -106,6 +106,8 @@ func newRequest(ident string, identifierType IdentifierType, segmentId uint32, a
 		path += fmt.Sprintf("&otp=%s", ident)
 	case IdentifierTypeDeviceID:
 		path += fmt.Sprintf("&device_id=%s", ident)
+	case IdentifierTypeExternalUID:
+		path += fmt.Sprintf("&external_uid=%s", ident)
 	default:
 		path += fmt.Sprintf("&otp=%s", ident)
 	}

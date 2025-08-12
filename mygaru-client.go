@@ -32,6 +32,7 @@ const (
 	IdentifierTypePartnerUID IdentifierType = iota
 	IdentifierTypeOTP
 	IdentifierTypeDeviceID
+	IdentifierTypeExternalUID
 )
 
 func Init(token []byte, deadlineTimeout, batchTimeout time.Duration, batchSize int) *MyGaru {
