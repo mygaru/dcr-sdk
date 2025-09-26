@@ -2,10 +2,11 @@ package dcr_sdk
 
 import (
 	"fmt"
-	"github.com/valyala/fasthttp"
-	"github.com/valyala/fastjson"
 	"net/url"
 	"time"
+
+	"github.com/valyala/fasthttp"
+	"github.com/valyala/fastjson"
 )
 
 type MyGaru struct {
@@ -81,7 +82,7 @@ func (myg *MyGaru) Check(ident string, segmentId uint32, identType IdentifierTyp
 
 	err := myg.client.DoDeadline(req, resp, time.Now().Add(myg.deadlineTimeout))
 	if err != nil {
-		return false, fmt.Errorf("failed to send request: %s", err.Error())
+		return false, fmt.Errorf("failed to send request: %w", err)
 	}
 
 	if resp.StatusCode() != fasthttp.StatusOK {
@@ -90,16 +91,16 @@ func (myg *MyGaru) Check(ident string, segmentId uint32, identType IdentifierTyp
 
 	v, err := fastjson.ParseBytes(resp.Body())
 	if err != nil {
-		return false, fmt.Errorf("failed to parse response: %s: %s", err, resp.Body())
+		return false, fmt.Errorf("failed to parse response: %w: %s", err, resp.Body())
 	}
 
 	r := v.Get(fmt.Sprintf("%d", segmentId))
 	if r == nil {
-		return false, fmt.Errorf("segment not found in response: %s: %s", err, resp.Body())
+		return false, fmt.Errorf("segment not found in response: %w: %s", err, resp.Body())
 	}
 
 	if errm := r.GetStringBytes("error"); len(errm) > 0 {
-		return false, fmt.Errorf("check unsuccessful: %s: %s", err, errm)
+		return false, fmt.Errorf("check unsuccessful: %w: %s", err, errm)
 	}
 
 	return r.GetBool("ok"), nil
