@@ -70,9 +70,15 @@ func (myg *MyGaru) Check(ident string, segmentId uint32, identType IdentifierTyp
 	}
 
 	req.SetRequestURI(baseURI + path)
+	resp := fasthttp.AcquireResponse()
+
 	req.Header.SetMethod(fasthttp.MethodGet)
 
-	resp := fasthttp.AcquireResponse()
+	defer func() {
+		fasthttp.ReleaseRequest(req)
+		fasthttp.ReleaseResponse(resp)
+	}()
+
 	err := myg.client.DoDeadline(req, resp, time.Now().Add(myg.deadlineTimeout))
 
 	if resp.StatusCode() != fasthttp.StatusOK {
