@@ -5,13 +5,9 @@ go 1.22.8
 toolchain go1.22.10
 
 require (
-	github.com/Vertamedia/chproxy v1.14.0
-	github.com/aradilov/batcher v0.0.0-20250306130141-f2f6af92a391
-	github.com/google/uuid v1.6.0
 	github.com/stretchr/testify v1.9.0
 	github.com/valyala/fasthttp v1.57.0
 	github.com/valyala/fastjson v1.6.4
-	gitlab.adtelligent.com/common/shared v0.0.0-20241128083343-6d219f1fb748
 )
 
 require (
