@@ -80,6 +80,9 @@ func (myg *MyGaru) Check(ident string, segmentId uint32, identType IdentifierTyp
 	}()
 
 	err := myg.client.DoDeadline(req, resp, time.Now().Add(myg.deadlineTimeout))
+	if err != nil {
+		return false, fmt.Errorf("failed to send request: %s", err.Error())
+	}
 
 	if resp.StatusCode() != fasthttp.StatusOK {
 		return false, fmt.Errorf("request failed with status code %d: %s", resp.StatusCode(), resp.Body())
