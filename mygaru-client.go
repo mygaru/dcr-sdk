@@ -3,6 +3,7 @@ package dcr_sdk
 import (
 	"fmt"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/valyala/fasthttp"
@@ -104,4 +105,81 @@ func (myg *MyGaru) Check(ident string, segmentId uint32, identType IdentifierTyp
 	}
 
 	return r.GetBool("ok"), nil
+}
+
+func (myg *MyGaru) CheckSegments(ident string, segmentsIds []uint32, identType IdentifierType) (res map[uint32]bool, err error) {
+	if len(segmentsIds) == 0 {
+		return nil, fmt.Errorf("no segments provided")
+	}
+
+	req := fasthttp.AcquireRequest()
+
+	path := "/segment/touch-multi?segment_id=" + strconv.Itoa(int(segmentsIds[0]))
+
+	for _, segmentId := range segmentsIds[1:] {
+		path += "&segment_id=" + strconv.Itoa(int(segmentId))
+	}
+
+	req.Header.SetBytesV("Authorization", myg.authHeader)
+
+	ident = url.QueryEscape(ident)
+
+	switch identType {
+	case IdentifierTypePartnerUID:
+		path += fmt.Sprintf("&partner_uid=%s", ident)
+	case IdentifierTypeOTP:
+		path += fmt.Sprintf("&otp=%s", ident)
+	case IdentifierTypeDeviceID:
+		path += fmt.Sprintf("&device_id=%s", ident)
+	case IdentifierTypeExternalUID:
+		path += fmt.Sprintf("&external_uid=%s", ident)
+	default:
+		path += fmt.Sprintf("&otp=%s", ident)
+	}
+
+	req.SetRequestURI(baseURI + path)
+	resp := fasthttp.AcquireResponse()
+
+	req.Header.SetMethod(fasthttp.MethodGet)
+
+	defer func() {
+		fasthttp.ReleaseRequest(req)
+		fasthttp.ReleaseResponse(resp)
+	}()
+
+	err = myg.client.DoDeadline(req, resp, time.Now().Add(myg.deadlineTimeout))
+	if err != nil {
+		err = fmt.Errorf("failed to send request: %w", err)
+		return
+	}
+
+	if resp.StatusCode() != fasthttp.StatusOK {
+		err = fmt.Errorf("request failed with status code %d: %s", resp.StatusCode(), resp.Body())
+		return
+	}
+
+	v, err := fastjson.ParseBytes(resp.Body())
+	if err != nil {
+		err = fmt.Errorf("failed to parse response: %w: %s", err, resp.Body())
+		return
+	}
+
+	res = make(map[uint32]bool)
+
+	for _, segmentId := range segmentsIds {
+		r := v.Get(fmt.Sprintf("%d", segmentId))
+		if r == nil {
+			err = fmt.Errorf("segment not found in response: %w: %s", err, resp.Body())
+			return
+		}
+
+		if errm := r.GetStringBytes("error"); len(errm) > 0 {
+			err = fmt.Errorf("check unsuccessful: %w: %s", err, errm)
+			return
+		}
+
+		res[segmentId] = r.GetBool("ok")
+	}
+
+	return
 }
