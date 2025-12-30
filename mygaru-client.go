@@ -51,6 +51,73 @@ func Init(token []byte, deadlineTimeout, _ time.Duration, _ int) *MyGaru {
 	return myg
 }
 
+func (myg *MyGaru) CheckList(ident string, segmentIDs []uint32, identType IdentifierType) (map[uint32]bool, error) {
+	req := fasthttp.AcquireRequest()
+	path := "/segment/touch-multi"
+	req.Header.SetBytesV("Authorization", myg.authHeader)
+
+	args := req.URI().QueryArgs()
+	for i := 0; i < len(segmentIDs); i++ {
+		args.Add("segment_id", strconv.Itoa(int(segmentIDs[i])))
+	}
+
+	ident = url.QueryEscape(ident)
+
+	switch identType {
+	case IdentifierTypePartnerUID:
+		path += fmt.Sprintf("&partner_uid=%s", ident)
+	case IdentifierTypeOTP:
+		path += fmt.Sprintf("&otp=%s", ident)
+	case IdentifierTypeDeviceID:
+		path += fmt.Sprintf("&device_id=%s", ident)
+	case IdentifierTypeExternalUID:
+		path += fmt.Sprintf("&external_uid=%s", ident)
+	default:
+		path += fmt.Sprintf("&otp=%s", ident)
+	}
+
+	req.SetRequestURI(baseURI + path)
+	resp := fasthttp.AcquireResponse()
+
+	req.Header.SetMethod(fasthttp.MethodGet)
+
+	defer func() {
+		fasthttp.ReleaseRequest(req)
+		fasthttp.ReleaseResponse(resp)
+	}()
+
+	err := myg.client.DoDeadline(req, resp, time.Now().Add(myg.deadlineTimeout))
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+
+	if resp.StatusCode() != fasthttp.StatusOK {
+		return nil, fmt.Errorf("request failed with status code %d: %s", resp.StatusCode(), resp.Body())
+	}
+
+	v, err := fastjson.ParseBytes(resp.Body())
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w: %s", err, resp.Body())
+	}
+
+	result := make(map[uint32]bool)
+	for i := 0; i < len(segmentIDs); i++ {
+		segmentId := segmentIDs[i]
+		r := v.Get(fmt.Sprintf("%d", segmentId))
+		if r == nil {
+			return nil, fmt.Errorf("segment not found in response: %w: %s", err, resp.Body())
+		}
+
+		if errm := r.GetStringBytes("error"); len(errm) > 0 {
+			return nil, fmt.Errorf("check unsuccessful: %w: %s", err, errm)
+		}
+
+		result[segmentId] = r.GetBool("ok")
+	}
+
+	return result, nil
+}
+
 // Check checks whether an identifier is in a segment.
 func (myg *MyGaru) Check(ident string, segmentId uint32, identType IdentifierType) (bool, error) {
 	req := fasthttp.AcquireRequest()
