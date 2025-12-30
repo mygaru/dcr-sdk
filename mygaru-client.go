@@ -51,14 +51,14 @@ func Init(token []byte, deadlineTimeout, _ time.Duration, _ int) *MyGaru {
 	return myg
 }
 
-func (myg *MyGaru) CheckList(ident string, segmentIDs []uint32, identType IdentifierType) (map[uint32]bool, error) {
+func (myg *MyGaru) CheckList(ident string, checkList map[uint32]bool, identType IdentifierType) (map[uint32]bool, error) {
 	req := fasthttp.AcquireRequest()
 	path := "/segment/touch-multi"
 	req.Header.SetBytesV("Authorization", myg.authHeader)
 
 	args := req.URI().QueryArgs()
-	for i := 0; i < len(segmentIDs); i++ {
-		args.Add("segment_id", strconv.Itoa(int(segmentIDs[i])))
+	for segmentId := range checkList {
+		args.SetUint("segment_id", int(segmentId))
 	}
 
 	ident = url.QueryEscape(ident)
@@ -100,9 +100,7 @@ func (myg *MyGaru) CheckList(ident string, segmentIDs []uint32, identType Identi
 		return nil, fmt.Errorf("failed to parse response: %w: %s", err, resp.Body())
 	}
 
-	result := make(map[uint32]bool)
-	for i := 0; i < len(segmentIDs); i++ {
-		segmentId := segmentIDs[i]
+	for segmentId := range checkList {
 		r := v.Get(fmt.Sprintf("%d", segmentId))
 		if r == nil {
 			return nil, fmt.Errorf("segment not found in response: %w: %s", err, resp.Body())
@@ -112,10 +110,10 @@ func (myg *MyGaru) CheckList(ident string, segmentIDs []uint32, identType Identi
 			return nil, fmt.Errorf("check unsuccessful: %w: %s", err, errm)
 		}
 
-		result[segmentId] = r.GetBool("ok")
+		checkList[segmentId] = r.GetBool("ok")
 	}
 
-	return result, nil
+	return checkList, nil
 }
 
 // Check checks whether an identifier is in a segment.
