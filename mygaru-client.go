@@ -17,7 +17,7 @@ type MyGaru struct {
 }
 
 const (
-	baseURI = "https://cloud.mgaru.dev"
+	baseURI = "https://cloud.mygaru.com"
 	// minimum nr identifiers for a scan request
 
 )
