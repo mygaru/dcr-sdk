@@ -1,0 +1,29 @@
+syntax = "proto3";
+import "base/v1/common.proto";
+
+option java_outer_classname = "MyGaruSDK"; // Renamed class for consistent capitalization
+option go_package = "github.com/mygaru/dcr-sdk/gen/base1;base"; // Updated go_package path
+
+package report;
+
+// A stream of events to be reported
+message ReportRequest {
+  // Tracking id for BE reporting
+  bytes tracking_id = 1;
+
+  // Type of event being tracked
+  common.EventType event = 2;
+
+  // Total count of events
+  uint32 event_count = 3;
+
+  // List of segment identifiers
+  repeated uint32 segment_ids = 4 [packed = true];
+
+}
+
+message ReportResponse {
+  bytes tracking_id = 1;
+
+  common.RPCStatus status = 2;
+}

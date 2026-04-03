@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+option java_outer_classname = "MyGaruSDK"; // Standardized PascalCase for outer classname
+option go_package = "github.com/mygaru/dcr-sdk/gen/base1;base";
+
+package common;
+
+// Enumeration for traffic types
+enum TrafficType {
+  TRAFFIC_TYPE_VIDEO = 0;   // Video traffic
+  TRAFFIC_TYPE_DISPLAY = 1; // Display traffic
+  TRAFFIC_TYPE_AUDIO = 2;   // Audio traffic
+  TRAFFIC_TYPE_NATIVE = 3;  // Native traffic
+}
+
+// Enumeration for event types
+enum EventType {
+  EVENT_TYPE_IMPRESSION = 0;             // Ad impression
+  EVENT_TYPE_BILLING = 1;                // Billing event (e.g., click, install)
+  EVENT_TYPE_VIEWABLE_IMPRESSION = 2;    // Viewable impression only
+  EVENT_TYPE_CLICK = 4;                  // Click event
+}
+
+// Common match statuses
+enum RPCStatus {
+  OK = 0;
+  OUTDATED = 1;
+  ACCESS_DENIED = 2;
+  SERVICE_UNAVAILABLE = 3;
+}

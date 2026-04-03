@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+import "base/v1/frequency.proto";
+import "base/v1/match.proto";
+import "base/v1/user.proto";
+
+option java_outer_classname = "myGaruSDK";
+option go_package = "github.com/mygaru/dcr-sdk/gen/base1;base";
+
+package target;
+
+message TargetRequest {
+  // List of user identifiers currently available.
+  repeated user.UID uids = 1;
+
+  // Rules for private frequency capping validation.
+  repeated frequency.Frequency.Rule frequency = 2;
+
+  // List of segment matching rules to evaluate.
+  repeated match.Match.Rule match = 3;
+
+  // By default, Cloud returns an error if at least one segment check fails.
+  // This behavior can be overridden by setting individual_errors = true.
+  bool individual_errors = 4;
+
+}
+
+message TargetResponse {
+  // Tracking id for BE reporting
+  bytes trackingId = 1;
+
+  // List of responses corresponding to the frequency rules.
+  repeated frequency.Frequency.Response frequency = 2;
+
+  // List of responses for the match rules.
+  repeated match.Match.Response match = 3;
+}

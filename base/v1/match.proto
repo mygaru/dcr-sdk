@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+import "base/v1/common.proto";
+
+option java_outer_classname = "MyGaruSDK";
+option go_package = "github.com/mygaru/dcr-sdk/gen/base1;base";
+
+package match;
+
+message Match {
+
+  // Describes a match rule
+  message Rule {
+    common.TrafficType traffic_type = 1;
+    repeated uint32 segment_ids = 3 [packed = true];
+  }
+
+  // Response description for a match
+  message Response {
+    uint32 segment_id = 1;
+    Status result = 2;
+
+    // Common match statuses
+    enum Status {
+      OK = 0;
+      MISS = 1;
+      ACCESS_DENIED = 2;
+      SERVICE_UNAVAILABLE = 3;
+    }
+  }
+}

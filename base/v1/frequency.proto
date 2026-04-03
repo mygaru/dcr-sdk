@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+import "base/v1/common.proto";
+
+option java_outer_classname = "MyGaruSDK";
+option go_package = "github.com/mygaru/dcr-sdk/gen/base1;base";
+
+package frequency;
+
+// Represents the main Frequency message
+message Frequency {
+  message Response {
+    uint64 key = 1;                   // Unique identifier
+    Status result = 2;                // Processing status
+
+    // Processing status options
+    enum Status {
+      STATUS_UNSPECIFIED = 0;
+      STATUS_EXCEED = 1;              // Frequency cap exceeded
+      STATUS_PASSED = 2;              // Frequency cap passed
+      STATUS_ACCESS_DENIED = 3;       // Access denied
+      STATUS_SERVICE_UNAVAILABLE = 4; // Service unavailable
+      STATUS_LIMIT_ID_MISMATCH = 5;   // Limit identifier mismatch
+    }
+  }
+
+  // Rule definitions for frequency capping
+  message Rule {
+    uint64 key = 1;                     // Key to identify user/ad campaign
+    Limit limit = 2;                    // Associated frequency limit
+  }
+
+  // Defines the frequency limitations
+  message Limit {
+    uint32 ads_per_user = 1;              // Maximum ads per user
+    uint32 period = 2;                  // Duration of the cap (e.g., 1, 2, 3 days)
+    Type period_type = 3;                // Period type (e.g., minute, hour)
+
+    // Types of allowed durations
+    enum Type {
+      TYPE_MINUTE = 0;                  // Minimum duration in minutes
+      TYPE_HOUR = 1;                    // Duration in hours
+      TYPE_DAY = 2;                     // Duration in days
+      TYPE_WEEK = 3;                    // Duration in weeks
+    }
+
+    common.EventType event = 4;             // Event type considered for tracking
+
+    Mode capMode = 5;                   // Cap operation mode
+    uint32 freeze_period_seconds = 6;     // Freezing period (in seconds)
+
+    // Modes for operating the cap
+    enum Mode {
+      CAP_MODE_FREEZE = 0;                  // Apply freeze and wait for an event
+      CAP_MODE_CAPPING = 1;                 // Increment frequency cap upon event
+    }
+  }
+}
+
