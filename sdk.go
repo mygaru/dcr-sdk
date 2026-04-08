@@ -12,7 +12,7 @@ func NewWithTLS(cfg *client.Configuration, tls *tls.Config) *client.ShardedClien
 	if nil == tls {
 		panic("tls config is required")
 	}
-	return client.NewClient(cfg, nil)
+	return client.NewClient(cfg, tls)
 }
 
 // New creates a test RPC Client that can communicate with a test RPC server

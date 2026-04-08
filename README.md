@@ -1,46 +1,306 @@
 # dcr-sdk
 
-```sh
-GOPRIVATE=github.com go get github.com/mygaru/dcr-sdk/myg-client
+`dcr-sdk` is a Go client SDK for communicating with the DCR RPC service.
+
+It provides a lightweight RPC client built on top of a custom binary protocol and a sharded transport layer for high-throughput request routing.
+
+## Features
+
+- Go SDK for DCR RPC services
+- Sharded client with round-robin request distribution
+- Low-overhead binary protocol
+- Snappy-compressed transport
+- Built on top of `fastrpc`
+- Optional mTLS support for production environments
+- Request/response protobuf contracts
+
+---
+
+## Installation
+
+```bash
+go get github.com/mygaru/dcr-sdk
 ```
 
+---
 
-mygaru-client allows checking if an user (represented by either a DeviceID, PartnerUID (PUID), or OTP) is in a segment 
-or to scan a list of PUIDs and see the overlap % between your list and the segment.
+## Package Layout
 
-You will need a token to be able to use the touch/scan endpoints.
+```text
+.
+├── base/v1              # protobuf schemas
+├── gen/base1            # generated protobuf Go code
+├── internal/contract    # low-level RPC wire contract
+├── pkg/client           # sharded RPC client implementation
+└── sdk.go               # public constructors
+```
 
-### Scan
-Note: the minimum limit of UIDs to send is 100.
+---
+
+## Public API
+
+The root package exposes two constructors:
+
+- `New(cfg)` — creates a client for tests, debug flows, or non-TLS environments
+- `NewWithTLS(cfg, tlsConfig)` — creates a client for production mTLS communication
+
+## Configuration
+
+The transport client is configured with `client.Configuration`.
 
 ```go
-// init client with your partnerID, HTTP timeout, batch timeout & queue size
-mygClient := Init([]byte("token"), 30*time.Second, 500*time.Millisecond, 50)
+type Configuration struct {
+    Addrs string
 
-segmentId := uint32(163)
-uids := make([]string, 100)
-for i := 0; i < 100; i++ {
-uids[i] = fmt.Sprintf("acefwevreger%d", i)
+    MaxRequestDuration time.Duration
+    MaxDialDuration    time.Duration
+
+    MaxPendingRequests int
+
+    MaximumSimultaneousConnections int
+
+    ReadBufferSize  int
+    WriteBufferSize int
+}
+```
+
+### Fields
+
+#### `Addrs`
+Comma-separated list of shard addresses.
+
+Example:
+
+```go
+Addrs: "127.0.0.1:9001,127.0.0.1:9002,127.0.0.1:9003"
+```
+
+#### `MaxRequestDuration`
+Maximum allowed duration for a request.
+
+If zero, a default timeout is used.
+
+#### `MaxDialDuration`
+Maximum allowed time for establishing a TCP connection.
+
+If zero, it falls back to `MaxRequestDuration`.
+
+#### `MaxPendingRequests`
+Maximum number of in-flight requests per underlying transport client.
+
+#### `MaximumSimultaneousConnections`
+Reserved for connection concurrency tuning.
+
+#### `ReadBufferSize` / `WriteBufferSize`
+Transport buffer sizes in bytes.
+
+---
+
+## Main RPC Methods
+
+### `Target`
+
+`Target` is the main request used by a third-party platform to:
+
+- check whether the user belongs to one or more target segments
+- validate frequency capping
+- determine matching quality / identification quality
+
+```go
+resp, status, err := cli.Target(req)
+```
+
+Example:
+
+```go
+req := &base.TargetRequest{
+    // Example only.
+    // Fill fields according to your protobuf schema.
 }
 
-// in case your uid list is []string
-inter1, err := mygClient.Scan(uids, segmentId)
+resp, status, err := cli.Target(req)
+if err != nil {
+    panic(err)
+}
 
-// in case you're reading the uids from a file, network response, etc.
-inter2, err := mygClient.ScanReader(bytes.NewBuffer(uidsBytes), segmentId)
+if status != base.RPCServerResponseCode_OK {
+    panic(status.String())
+}
 
-uidsBytes := []byte(strings.Join(uids, ",\n"))
-// in case your uid list is already encoded
-inter3, err := mygClient.ScanBytes(uidsBytes, segmentId)
-
-
-
+fmt.Printf("tracking_id=%s\n", resp.GetTrackingId())
+fmt.Printf("match=%v\n", resp.GetMatch())
+fmt.Printf("frequency=%v\n", resp.GetFrequency())
 ```
 
-### Check
+---
 
-Note: check calls are batched according to the batch timeout and queue size you provide.
+### `Report`
+
+`Report` is used to submit event information back to the DCR service.
+
+Typical use cases:
+
+- impression reporting
+- click reporting
+- delivery accounting
+- billing/statistics input
+
 ```go
-mygClient := Init([]byte("token"), 30*time.Second, 500*time.Millisecond, 50)
-ok, err := mygClient.Check("00000000-0000-0000-0000-000000000001", 163, IdentifierTypeDeviceID)
+status, err := cli.Report(req)
 ```
+
+Example:
+
+```go
+req := &base.ReportRequest{
+    // Fill according to your protobuf schema
+}
+
+status, err := cli.Report(req)
+if err != nil {
+    panic(err)
+}
+
+if status != base.RPCServerResponseCode_OK {
+    panic(status.String())
+}
+```
+
+
+## Protocol Overview
+
+The SDK uses a custom binary RPC protocol over TCP.
+
+### Transport characteristics
+
+- TCP-based
+- request/response protocol
+- protobuf payloads
+- Snappy compression
+- fixed wire envelope
+- request type identified by numeric RPC register
+- maximum payload protection limit
+
+### Request flow
+
+1. A protobuf request is marshaled into bytes
+2. The request is wrapped into an internal transport envelope
+3. The envelope contains the RPC method identifier
+4. The payload is sent via `fastrpc`
+5. The server returns a response envelope with:
+    - status code
+    - optional response payload
+6. If the status code is `OK`, the payload is unmarshaled into a protobuf response
+
+---
+
+## Wire Contract
+
+At the transport layer, each request carries:
+
+- **request name / method identifier**
+- **binary payload**
+
+The payload itself is the protobuf-serialized request body.
+
+The response contains:
+
+- **status code**
+- **binary payload**
+
+The payload is protobuf-serialized response data when the status code is successful.
+
+### Compression
+
+Transport compression uses **Snappy**.
+
+### Payload size limit
+
+The transport layer includes a maximum payload size limit to protect the server and client from unexpectedly large frames.
+
+---
+
+## Response Handling
+
+Each RPC call returns:
+
+1. protobuf response object or `nil`
+2. `base.RPCServerResponseCode`
+3. `error`
+
+Typical handling pattern:
+
+```go
+resp, status, err := cli.Target(req)
+if err != nil {
+    // network error, marshal/unmarshal error, timeout, protocol error, etc.
+    panic(err)
+}
+
+if status != base.RPCServerResponseCode_OK {
+    // server-side application-level error
+    panic(status.String())
+}
+
+_ = resp
+```
+
+### Important distinction
+
+- `error != nil` usually means transport, timeout, marshal/unmarshal, or low-level RPC failure
+- `status != OK` means the request reached the server, but the server returned a non-success application status
+
+---
+
+## Sharding Model
+
+`ShardedClient` maintains multiple underlying transport clients.
+
+The `Addrs` configuration field is a comma-separated list of shard addresses.
+
+Requests are distributed across shard clients using a round-robin counter.
+
+Example:
+
+```go
+cfg := &client.Configuration{
+    Addrs: "10.0.0.1:9000,10.0.0.2:9000,10.0.0.3:9000",
+}
+```
+
+This creates three internal transport clients and balances requests across them.
+
+---
+
+## Monitoring / Debugging
+
+### Pending requests
+
+You can inspect the current number of in-flight requests:
+
+```go
+n := cli.PendingRequests()
+fmt.Println("pending:", n)
+```
+
+This is useful for:
+
+- debugging transport overload
+- monitoring request pressure
+- observing backlog during latency spikes
+
+---
+
+## Error Cases
+
+Typical error sources include:
+
+- TCP dial failure
+- request timeout
+- pending requests overflow
+- invalid server response
+- protobuf marshal failure
+- protobuf unmarshal failure
+- non-OK application response
+
+A standard calling pattern should always check both `error` and `status`.
