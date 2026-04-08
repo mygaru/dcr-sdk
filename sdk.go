@@ -15,15 +15,16 @@ var (
 	sdkRPCServers            = flag.String("dcrServers", "127.0.0.1:7943", "Comma-separated list of DCR servers")
 )
 
-func Target(req *base.TargetRequest) (res *base.TargetResponse, err error) {
+// Target processes a TargetRequest and returns a TargetResponse, an RPCServerResponseCode, and an error if applicable.
+func Target(req *base.TargetRequest) (*base.TargetResponse, base.RPCServerResponseCode, error) {
 	return getClient().Target(req)
 }
 
-func Report(req *base.ReportRequest) error {
+func Report(req *base.ReportRequest) (base.RPCServerResponseCode, error) {
 	return getClient().Report(req)
 }
 
-func Mock(req *base.MockRequest, resp proto.Message) (msg proto.Message, err error) {
+func Mock(req *base.MockRequest, resp proto.Message) (proto.Message, base.RPCServerResponseCode, error) {
 	return getClient().Mock(req, resp)
 }
 

@@ -29,12 +29,12 @@ func (sc *ShardedClient) Mock(req *base.MockRequest, resp proto.Message) (proto.
 	return res, statusCode, nil
 }
 
-func (sc *ShardedClient) Target(req *base.TargetRequest) (*base.TargetResponse, error) {
-	res, _, err := sc.getClient().doUnary(req, &base.TargetResponse{}, contract.Target)
+func (sc *ShardedClient) Target(req *base.TargetRequest) (*base.TargetResponse, base.RPCServerResponseCode, error) {
+	res, statusCode, err := sc.getClient().doUnary(req, &base.TargetResponse{}, contract.Target)
 	if nil != err {
-		return nil, err
+		return nil, statusCode, err
 	}
-	return res.(*base.TargetResponse), nil
+	return res.(*base.TargetResponse), statusCode, nil
 }
 
 func (sc *ShardedClient) Report(req *base.ReportRequest) (base.RPCServerResponseCode, error) {
