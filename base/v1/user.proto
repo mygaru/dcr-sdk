@@ -1,9 +1,11 @@
-syntax = "proto3";
+edition = "2023";
 
 option java_outer_classname = "myGaruSDK";
 option go_package = "github.com/mygaru/dcr-sdk/gen/base1;base";
 
 package user;
+
+option features.field_presence = IMPLICIT;
 
 // Represents contextual information for the user request
 message Context {

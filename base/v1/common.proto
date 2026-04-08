@@ -1,4 +1,4 @@
-syntax = "proto3";
+edition = "2023";
 
 option java_outer_classname = "MyGaruSDK"; // Standardized PascalCase for outer classname
 option go_package = "github.com/mygaru/dcr-sdk/gen/base1;base";
@@ -22,9 +22,13 @@ enum EventType {
 }
 
 // Common match statuses
-enum RPCStatus {
-  OK = 0;
-  OUTDATED = 1;
-  ACCESS_DENIED = 2;
+enum RPCServerResponseCode {
+  UNKNOWN = 0;
+  OK = 1;
+  UNAUTHORIZED = 2;
   SERVICE_UNAVAILABLE = 3;
+  OUTDATED = 4;
+  INVALID_REQUEST = 5;
+  TECH_ERROR = 6;
+  NETWORK_ERROR = 7;
 }

@@ -1,11 +1,14 @@
-syntax = "proto3";
+edition = "2023";
 
 import "base/v1/frequency.proto";
 import "base/v1/match.proto";
 import "base/v1/user.proto";
+import "base/v1/common.proto";
 
 option java_outer_classname = "myGaruSDK";
 option go_package = "github.com/mygaru/dcr-sdk/gen/base1;base";
+
+option features.field_presence = IMPLICIT;
 
 package target;
 
@@ -27,11 +30,13 @@ message TargetRequest {
 
 message TargetResponse {
   // Tracking id for BE reporting
-  bytes trackingId = 1;
+  bytes tracking_id = 1;
+
+  common.RPCServerResponseCode status_code = 2;
 
   // List of responses corresponding to the frequency rules.
-  repeated frequency.Frequency.Response frequency = 2;
+  repeated frequency.Frequency.ResponseStatus frequency = 3;
 
   // List of responses for the match rules.
-  repeated match.Match.Response match = 3;
+  repeated match.Match.ResponseStatus match = 4;
 }

@@ -1,8 +1,11 @@
-syntax = "proto3";
+edition = "2023";
+
 import "base/v1/common.proto";
 
 option java_outer_classname = "MyGaruSDK"; // Renamed class for consistent capitalization
 option go_package = "github.com/mygaru/dcr-sdk/gen/base1;base"; // Updated go_package path
+
+option features.field_presence = IMPLICIT;
 
 package report;
 
@@ -15,15 +18,8 @@ message ReportRequest {
   common.EventType event = 2;
 
   // Total count of events
-  uint32 event_count = 3;
+  uint32 events_count = 3;
 
   // List of segment identifiers
-  repeated uint32 segment_ids = 4 [packed = true];
-
-}
-
-message ReportResponse {
-  bytes tracking_id = 1;
-
-  common.RPCStatus status = 2;
+  repeated uint32 segment_ids = 4;
 }

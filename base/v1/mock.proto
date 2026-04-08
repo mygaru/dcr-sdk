@@ -1,0 +1,17 @@
+edition = "2023";
+
+import "base/v1/common.proto";
+
+option java_outer_classname = "MyGaruSDK";
+option go_package = "github.com/mygaru/dcr-sdk/gen/base1;base";
+
+option features.field_presence = IMPLICIT;
+
+package mock;
+
+// For debug usage via dcrMockServer
+message MockRequest {
+    common.RPCServerResponseCode statusCode = 1;
+    bytes tracking_id = 2;
+
+}

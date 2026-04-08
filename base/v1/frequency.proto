@@ -1,27 +1,24 @@
-syntax = "proto3";
+edition = "2023";
 
 import "base/v1/common.proto";
 
 option java_outer_classname = "MyGaruSDK";
 option go_package = "github.com/mygaru/dcr-sdk/gen/base1;base";
 
+option features.field_presence = IMPLICIT;
+
 package frequency;
 
 // Represents the main Frequency message
 message Frequency {
-  message Response {
-    uint64 key = 1;                   // Unique identifier
-    Status result = 2;                // Processing status
 
-    // Processing status options
-    enum Status {
-      STATUS_UNSPECIFIED = 0;
-      STATUS_EXCEED = 1;              // Frequency cap exceeded
-      STATUS_PASSED = 2;              // Frequency cap passed
-      STATUS_ACCESS_DENIED = 3;       // Access denied
-      STATUS_SERVICE_UNAVAILABLE = 4; // Service unavailable
-      STATUS_LIMIT_ID_MISMATCH = 5;   // Limit identifier mismatch
-    }
+  enum ResponseStatus {
+    STATUS_UNSPECIFIED = 0;
+    STATUS_EXCEED = 1;              // Frequency cap exceeded
+    STATUS_PASSED = 2;              // Frequency cap passed
+    STATUS_ACCESS_DENIED = 3;       // Access denied
+    STATUS_SERVICE_UNAVAILABLE = 4; // Service unavailable
+    STATUS_LIMIT_ID_MISMATCH = 5;   // Limit identifier mismatch
   }
 
   // Rule definitions for frequency capping
