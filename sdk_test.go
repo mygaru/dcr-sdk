@@ -36,8 +36,8 @@ func TestNew(t *testing.T) {
 	}{
 		{
 			name:       "nil configuration",
-			cfg:        nil,
-			expectAddr: "cloud.mygaru.com:8080",
+			cfg:        &client.Configuration{},
+			expectAddr: "cloud.mygaru.com:7943",
 		},
 		{
 			name: "addr configuration",
