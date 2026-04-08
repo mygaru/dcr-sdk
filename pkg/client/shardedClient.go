@@ -15,6 +15,8 @@ import (
 	"time"
 )
 
+const defaultCloudAddr = "cloud.mygaru.com:7943"
+
 type Configuration struct {
 	// Addrs specifies the comma-separated list of server addresses used for sharding the client connections.
 	Addrs string
@@ -104,6 +106,13 @@ func (sc *ShardedClient) PendingRequests() int {
 
 // NewClient initializes and returns a new instance of ShardedClient
 func NewClient(cfg *Configuration, tls *tls.Config) *ShardedClient {
+	if nil == cfg {
+		cfg = &Configuration{}
+	}
+
+	if 0 == len(cfg.Addrs) {
+		cfg.Addrs = defaultCloudAddr
+	}
 
 	sc := &ShardedClient{
 		Configuration: *cfg,
