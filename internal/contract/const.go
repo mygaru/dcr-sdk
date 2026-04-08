@@ -8,7 +8,7 @@ const (
 	Report  RPCRegister = 2
 	Mock    RPCRegister = 3
 
-	MaxRequestIdentifier = Mock + 1
+	MaxRequestIdentifier = Mock
 )
 
 func (r RPCRegister) String() string {

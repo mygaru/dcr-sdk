@@ -1,66 +1,24 @@
 package client
 
 import (
+	"errors"
 	"fmt"
 	"github.com/aradilov/fastrpc"
 	base "github.com/mygaru/dcr-sdk/gen/base1"
 	"github.com/mygaru/dcr-sdk/internal/contract"
-	"github.com/mygaru/dcr-sdk/internal/sdkutil"
-	"github.com/valyala/fasthttp"
 	"google.golang.org/protobuf/proto"
-	"net"
 	"time"
 )
 
 type client struct {
+
+	// maxRequestDuration specifies the maximum duration allowed for a single request to complete before timing out.
 	maxRequestDuration time.Duration
 
-	metricGroups [contract.MaxRequestIdentifier]*metricsGroup
+	// metricGroups is an array of metricsGroup pointers, indexed by request identifiers, for tracking metrics of RPC calls.
+	metricGroups [contract.MaxRequestIdentifier + 1]*metricsGroup
 
 	c *fastrpc.Client
-}
-
-func newClient(addr string, maxRequestDuration time.Duration) *client {
-
-	if maxRequestDuration <= 0 {
-		maxRequestDuration = time.Second
-	}
-
-	c := &client{
-		maxRequestDuration: maxRequestDuration,
-
-		c: &fastrpc.Client{
-			SniffHeader:     sdkutil.SniffHeader,
-			ProtocolVersion: sdkutil.ProtocolVersion,
-
-			NewResponse: func() fastrpc.ResponseReader {
-				return &contract.Response{}
-			},
-
-			Dial: func(addr string) (conn net.Conn, err error) {
-				return fasthttp.DialTimeout(addr, maxRequestDuration)
-			},
-
-			Addr: addr,
-
-			// read timeout should be quite high in order to avoid
-			// frequent reconnects for almost idle connections.
-			ReadTimeout: time.Minute,
-
-			WriteTimeout:       maxRequestDuration * 10,
-			MaxPendingRequests: 4e3,
-
-			CompressType: fastrpc.CompressSnappy,
-
-			WriteBufferSize: 4 * 1024,
-			ReadBufferSize:  4 * 1024,
-		},
-	}
-
-	for i := 1; i < int(contract.MaxRequestIdentifier); i++ {
-		c.metricGroups[i] = newMetricsGroup(addr, contract.RPCRegister(i).String())
-	}
-	return c
 }
 
 // doUnary sends a unary gRPC request with a given proto message and request identifier, and returns the response or an error.
@@ -122,10 +80,10 @@ func (c *client) countError(reqn contract.RPCRegister, err error, resp *contract
 		return
 	}
 
-	switch err {
-	case fastrpc.ErrTimeout:
+	switch {
+	case errors.Is(err, fastrpc.ErrTimeout):
 		metricGroup.timeout.Inc()
-	case fastrpc.ErrPendingRequestsOverflow:
+	case errors.Is(err, fastrpc.ErrPendingRequestsOverflow):
 		metricGroup.overflow.Inc()
 	default:
 		metricGroup.error.Inc()

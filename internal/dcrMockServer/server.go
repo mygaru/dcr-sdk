@@ -16,7 +16,7 @@ import (
 )
 
 var (
-	dcrMockServerListenAddr = flag.String("dcrMockServerListenAddr", "127.0.0.1:7943",
+	ListenAddr = flag.String("ListenAddr", "127.0.0.1:7943",
 		"TCP address for accepting RPC requests from dcrMock client")
 )
 
@@ -26,9 +26,9 @@ var (
 // dcrMockServer API.
 func Init() {
 
-	ln, err := net.Listen("tcp4", *dcrMockServerListenAddr)
+	ln, err := net.Listen("tcp4", *ListenAddr)
 	if err != nil {
-		log.Fatal(fmt.Sprintf("dcrMockServer: cannot listen %q: %s", *dcrMockServerListenAddr, err))
+		log.Fatal(fmt.Sprintf("dcrMockServer: cannot listen %q: %s", *ListenAddr, err))
 	}
 
 	server := &fastrpc.Server{
@@ -50,10 +50,10 @@ func Init() {
 		PipelineRequests: true,
 	}
 
-	log.Printf("starting dcrMockServer at %q", *dcrMockServerListenAddr)
+	log.Printf("starting dcrMockServer at %q", *ListenAddr)
 	go func() {
 		if err := server.Serve(ln); err != nil {
-			log.Fatal(fmt.Sprintf("dcrMockServer: error when listening %q: %s", *dcrMockServerListenAddr, err))
+			log.Fatal(fmt.Sprintf("dcrMockServer: error when listening %q: %s", *ListenAddr, err))
 		}
 	}()
 }
