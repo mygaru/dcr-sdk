@@ -50,51 +50,30 @@ The transport client is configured with `client.Configuration`.
 
 ```go
 type Configuration struct {
+	// Comma-separated list of shard addresses.
+    // By default: cloud.mygaru.com:7943
     Addrs string
 
+    //Maximum allowed duration for a request.
+    //If zero, a default timeout is used.
     MaxRequestDuration time.Duration
+
+    //Maximum allowed time for establishing a TCP connection.
+    //If zero, it falls back to `MaxRequestDuration`.
     MaxDialDuration    time.Duration
 
+    //Maximum number of in-flight requests per underlying transport client.
     MaxPendingRequests int
 
+    // Reserved for connection concurrency tuning.
     MaximumSimultaneousConnections int
 
+	// Transport buffer sizes in bytes.
     ReadBufferSize  int
     WriteBufferSize int
 }
 ```
 
-### Fields
-
-#### `Addrs`
-Comma-separated list of shard addresses.
-
-Example:
-
-```go
-Addrs: "127.0.0.1:9001,127.0.0.1:9002,127.0.0.1:9003"
-```
-
-#### `MaxRequestDuration`
-Maximum allowed duration for a request.
-
-If zero, a default timeout is used.
-
-#### `MaxDialDuration`
-Maximum allowed time for establishing a TCP connection.
-
-If zero, it falls back to `MaxRequestDuration`.
-
-#### `MaxPendingRequests`
-Maximum number of in-flight requests per underlying transport client.
-
-#### `MaximumSimultaneousConnections`
-Reserved for connection concurrency tuning.
-
-#### `ReadBufferSize` / `WriteBufferSize`
-Transport buffer sizes in bytes.
-
----
 
 ## Main RPC Methods
 
@@ -114,8 +93,19 @@ Example:
 
 ```go
 req := &base.TargetRequest{
-    // Example only.
-    // Fill fields according to your protobuf schema.
+   Uids: []*base.UID{
+      {Id: []byte("SOME_OTP_HERE"), Type: base.UID_OTP},
+      {Id: []byte("019d2555-7874-7e9d-a284-9b45a0b2f165"), Type: base.UID_DEVICE_ID},
+      {Id: []byte("AAABBBCCCDDDEEE"), Type: base.UID_EXTERNAL_UID},
+   },
+   Match: []*base.Match_Rule{
+      {TrafficType: base.TrafficType_TRAFFIC_TYPE_DISPLAY, SegmentIds: []uint32{1, 2, 3}},
+      {TrafficType: base.TrafficType_TRAFFIC_TYPE_VIDEO, SegmentIds: []uint32{4, 5}},
+   },
+   Frequency: []*base.Frequency_Rule{
+      {Key: 429496729345, Limit: &base.Frequency_Limit{AdsPerUser: 10, Period: 1, PeriodType:base.Frequency_Limit_TYPE_WEEK}},
+      {Key: 429412463295, Limit: &base.Frequency_Limit{AdsPerUser: 1, Period: 1, PeriodType:base.Frequency_Limit_TYPE_MINUTE}},
+   },
 }
 
 resp, status, err := cli.Target(req)
@@ -153,16 +143,19 @@ Example:
 
 ```go
 req := &base.ReportRequest{
-    // Fill according to your protobuf schema
+   TrackingId: []byte("0CA45E006B041868I1"),
+   Event: base.EventType_EVENT_TYPE_IMPRESSION,
+   EventsCount: 100500,
+   SegmentIds: []uint32{1, 2, 5},
 }
-
 status, err := cli.Report(req)
 if err != nil {
     panic(err)
 }
 
-if status != base.RPCServerResponseCode_OK {
-    panic(status.String())
+if status == base.RPCServerResponseCode_NETWORK_ERROR {
+   // The request can be resubmitted if the error is network related. 
+   // The operation is idempotent.
 }
 ```
 
@@ -220,31 +213,7 @@ The transport layer includes a maximum payload size limit to protect the server 
 
 ---
 
-## Response Handling
-
-Each RPC call returns:
-
-1. protobuf response object or `nil`
-2. `base.RPCServerResponseCode`
-3. `error`
-
-Typical handling pattern:
-
-```go
-resp, status, err := cli.Target(req)
-if err != nil {
-    // network error, marshal/unmarshal error, timeout, protocol error, etc.
-    panic(err)
-}
-
-if status != base.RPCServerResponseCode_OK {
-    // server-side application-level error
-    panic(status.String())
-}
-
-_ = resp
-```
-
+ 
 ### Important distinction
 
 - `error != nil` usually means transport, timeout, marshal/unmarshal, or low-level RPC failure
@@ -252,44 +221,6 @@ _ = resp
 
 ---
 
-## Sharding Model
-
-`ShardedClient` maintains multiple underlying transport clients.
-
-The `Addrs` configuration field is a comma-separated list of shard addresses.
-
-Requests are distributed across shard clients using a round-robin counter.
-
-Example:
-
-```go
-cfg := &client.Configuration{
-    Addrs: "10.0.0.1:9000,10.0.0.2:9000,10.0.0.3:9000",
-}
-```
-
-This creates three internal transport clients and balances requests across them.
-
----
-
-## Monitoring / Debugging
-
-### Pending requests
-
-You can inspect the current number of in-flight requests:
-
-```go
-n := cli.PendingRequests()
-fmt.Println("pending:", n)
-```
-
-This is useful for:
-
-- debugging transport overload
-- monitoring request pressure
-- observing backlog during latency spikes
-
----
 
 ## Error Cases
 
