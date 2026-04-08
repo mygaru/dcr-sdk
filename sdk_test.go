@@ -29,13 +29,6 @@ func TestFailed(t *testing.T) {
 
 func TestNew(t *testing.T) {
 
-	req := &base.ReportRequest{
-		TrackingId:  []byte("0CA45E006B041868I1"),
-		Event:       base.EventType_EVENT_TYPE_IMPRESSION,
-		EventsCount: 100500,
-		SegmentIds:  []uint32{1, 2, 5},
-	}
-
 	tests := []struct {
 		name       string
 		cfg        *client.Configuration
