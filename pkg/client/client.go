@@ -3,14 +3,21 @@ package client
 import (
 	"errors"
 	"fmt"
+	"sync"
+	"sync/atomic"
+	"time"
+
 	"github.com/aradilov/fastrpc"
+	"github.com/google/uuid"
 	base "github.com/mygaru/dcr-sdk/gen/base1"
 	"github.com/mygaru/dcr-sdk/internal/contract"
 	"google.golang.org/protobuf/proto"
-	"time"
 )
 
 type client struct {
+
+	// JvtToken is a byte slice used for storing JSON Web Token (JWT) data associated with the client.
+	JvtToken []byte
 
 	// maxRequestDuration specifies the maximum duration allowed for a single request to complete before timing out.
 	maxRequestDuration time.Duration
@@ -18,11 +25,80 @@ type client struct {
 	// metricGroups is an array of metricsGroup pointers, indexed by request identifiers, for tracking metrics of RPC calls.
 	metricGroups [contract.MaxRequestIdentifier + 1]*metricsGroup
 
+	// single connection RPC client
 	c *fastrpc.Client
+
+	connGen atomic.Uint64
+	mu      sync.Mutex
+
+	authedGen uint64
+	authErr   error
+	authId    uuid.UUID
+}
+
+func (c *client) ensureAuthForCurrentConn() error {
+	gen := c.connGen.Load()
+	if gen == 0 {
+		// first connection
+		return nil
+	}
+
+	if gen == atomic.LoadUint64(&c.authedGen) {
+		// already authenticated
+		return nil
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	gen = c.connGen.Load()
+	if gen == c.authedGen {
+		return nil
+	}
+
+	req := contract.AcquireRequest()
+	resp := contract.AcquireResponse()
+	defer contract.ReleaseRequest(req)
+	defer contract.ReleaseResponse(resp)
+
+	req.SetName(contract.Auth)
+	req.Append(c.JvtToken)
+
+	err := c.c.DoDeadline(req, resp, time.Now().Add(time.Second))
+	if err != nil {
+		c.authErr = err
+		return err
+	}
+
+	uid, err := uuid.Parse(string(resp.Value()))
+	if err != nil {
+		c.authErr = fmt.Errorf("parse uid from response is failed: %w", err)
+		return err
+	}
+
+	c.authedGen = gen
+	c.authErr = nil
+	c.authId = uid
+
+	return nil
+}
+
+// GetUUID returns the UUID associated with the current authenticated client connection.
+func (c *client) GetUUID() uuid.UUID {
+	return c.authId
+}
+
+// Reconnects returns the number of reconnections the client has performed by reading the connection generation counter.
+func (c *client) Reconnects() uint64 {
+	return c.connGen.Load()
 }
 
 // doUnary sends a unary gRPC request with a given proto message and request identifier, and returns the response or an error.
 func (c *client) doUnary(req, resp proto.Message, reqn contract.RPCRegister) (proto.Message, base.RPCServerResponseCode, error) {
+	if err := c.ensureAuthForCurrentConn(); err != nil {
+		return nil, base.RPCServerResponseCode_UNAUTHORIZED, err
+	}
+
 	raw, err := proto.Marshal(req)
 	if 0 == len(raw) {
 		return nil, base.RPCServerResponseCode_UNKNOWN, fmt.Errorf("marshal request %s is failed: empty request", reqn)

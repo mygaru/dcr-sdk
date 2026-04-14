@@ -1,9 +1,10 @@
 package dcr_sdk
 
 import (
+	"testing"
+
 	base "github.com/mygaru/dcr-sdk/gen/base1"
 	"github.com/mygaru/dcr-sdk/internal/dcrMockServer"
-	"testing"
 
 	"github.com/mygaru/dcr-sdk/pkg/client"
 )
@@ -12,8 +13,28 @@ func init() {
 	dcrMockServer.Init()
 }
 
+const MaximumSimultaneousConnections = 4
+
 func getTestClient() *client.ShardedClient {
-	return New(&client.Configuration{Addrs: *dcrMockServer.ListenAddr})
+	return New(&client.Configuration{Addrs: *dcrMockServer.ListenAddr, JvtToken: []byte("some token here ..."), MaximumSimultaneousConnections: MaximumSimultaneousConnections})
+}
+
+func TestAuth(t *testing.T) {
+	rpc := getTestClient()
+	for i := 0; i < 100; i++ {
+		_, sc, err := rpc.Mock(&base.MockRequest{StatusCode: base.RPCServerResponseCode_OK}, nil)
+		if nil != err {
+			t.Fatalf("expected nil, got err %v", err)
+		}
+
+		if sc != base.RPCServerResponseCode_OK {
+			t.Fatalf("expected status code to be %d, got %d", base.RPCServerResponseCode_OK, sc)
+		}
+	}
+
+	if rpc.Reconnects() != MaximumSimultaneousConnections {
+		t.Fatalf("expected %d reconnects, got %d", MaximumSimultaneousConnections, rpc.Reconnects())
+	}
 }
 
 func TestFailed(t *testing.T) {

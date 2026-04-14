@@ -3,9 +3,10 @@ package contract
 import (
 	"bufio"
 	"fmt"
-	"github.com/valyala/fasthttp"
 	"net"
 	"sync"
+
+	"github.com/valyala/fasthttp"
 )
 
 // RequestCtx implements fastrpc.HandlerCtx

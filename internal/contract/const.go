@@ -7,6 +7,7 @@ const (
 	Target  RPCRegister = 1
 	Report  RPCRegister = 2
 	Mock    RPCRegister = 3
+	Auth    RPCRegister = 4
 
 	MaxRequestIdentifier = Mock
 )
@@ -19,6 +20,8 @@ func (r RPCRegister) String() string {
 		return "report"
 	case Mock:
 		return "mock"
+	case Auth:
+		return "auth"
 	default:
 		panic("unknown")
 	}

@@ -5,6 +5,7 @@ go 1.24.0
 require (
 	github.com/VictoriaMetrics/metrics v1.43.1
 	github.com/aradilov/fastrpc v0.0.0-20220330144141-63c824a450a6
+	github.com/google/uuid v1.6.0
 	github.com/valyala/fasthttp v1.69.0
 	google.golang.org/protobuf v1.36.11
 )
