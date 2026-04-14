@@ -31,7 +31,8 @@ type TargetRequest struct {
 	Match []*Match_Rule `protobuf:"bytes,3,rep,name=match" json:"match,omitempty"`
 	// By default, Cloud returns an error if at least one segment check fails.
 	// This behavior can be overridden by setting individual_errors = true.
-	IndividualErrors bool `protobuf:"varint,4,opt,name=individual_errors,json=individualErrors" json:"individual_errors,omitempty"`
+	IndividualErrors bool     `protobuf:"varint,4,opt,name=individual_errors,json=individualErrors" json:"individual_errors,omitempty"`
+	Context          *Context `protobuf:"bytes,5,opt,name=Context" json:"Context,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -92,6 +93,13 @@ func (x *TargetRequest) GetIndividualErrors() bool {
 		return x.IndividualErrors
 	}
 	return false
+}
+
+func (x *TargetRequest) GetContext() *Context {
+	if x != nil {
+		return x.Context
+	}
+	return nil
 }
 
 type TargetResponse struct {
@@ -169,12 +177,13 @@ var File_base_v1_rpc_target_proto protoreflect.FileDescriptor
 
 const file_base_v1_rpc_target_proto_rawDesc = "" +
 	"\n" +
-	"\x18base/v1/rpc.target.proto\x12\x06target\x1a\x17base/v1/frequency.proto\x1a\x13base/v1/match.proto\x1a\x12base/v1/user.proto\x1a\x14base/v1/common.proto\"\xbd\x01\n" +
+	"\x18base/v1/rpc.target.proto\x12\x06target\x1a\x17base/v1/frequency.proto\x1a\x13base/v1/match.proto\x1a\x12base/v1/user.proto\x1a\x14base/v1/common.proto\"\xe6\x01\n" +
 	"\rTargetRequest\x12\x1d\n" +
 	"\x04uids\x18\x01 \x03(\v2\t.user.UIDR\x04uids\x127\n" +
 	"\tfrequency\x18\x02 \x03(\v2\x19.frequency.Frequency.RuleR\tfrequency\x12'\n" +
 	"\x05match\x18\x03 \x03(\v2\x11.match.Match.RuleR\x05match\x12+\n" +
-	"\x11individual_errors\x18\x04 \x01(\bR\x10individualErrors\"\xe7\x01\n" +
+	"\x11individual_errors\x18\x04 \x01(\bR\x10individualErrors\x12'\n" +
+	"\aContext\x18\x05 \x01(\v2\r.user.ContextR\aContext\"\xe7\x01\n" +
 	"\x0eTargetResponse\x12\x1f\n" +
 	"\vtracking_id\x18\x01 \x01(\fR\n" +
 	"trackingId\x12>\n" +
@@ -202,22 +211,24 @@ var file_base_v1_rpc_target_proto_goTypes = []any{
 	(*UID)(nil),                   // 2: user.UID
 	(*Frequency_Rule)(nil),        // 3: frequency.Frequency.Rule
 	(*Match_Rule)(nil),            // 4: match.Match.Rule
-	(RPCServerResponseCode)(0),    // 5: common.RPCServerResponseCode
-	(Frequency_ResponseStatus)(0), // 6: frequency.Frequency.ResponseStatus
-	(Match_ResponseStatus)(0),     // 7: match.Match.ResponseStatus
+	(*Context)(nil),               // 5: user.Context
+	(RPCServerResponseCode)(0),    // 6: common.RPCServerResponseCode
+	(Frequency_ResponseStatus)(0), // 7: frequency.Frequency.ResponseStatus
+	(Match_ResponseStatus)(0),     // 8: match.Match.ResponseStatus
 }
 var file_base_v1_rpc_target_proto_depIdxs = []int32{
 	2, // 0: target.TargetRequest.uids:type_name -> user.UID
 	3, // 1: target.TargetRequest.frequency:type_name -> frequency.Frequency.Rule
 	4, // 2: target.TargetRequest.match:type_name -> match.Match.Rule
-	5, // 3: target.TargetResponse.status_code:type_name -> common.RPCServerResponseCode
-	6, // 4: target.TargetResponse.frequency:type_name -> frequency.Frequency.ResponseStatus
-	7, // 5: target.TargetResponse.match:type_name -> match.Match.ResponseStatus
-	6, // [6:6] is the sub-list for method output_type
-	6, // [6:6] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	5, // 3: target.TargetRequest.Context:type_name -> user.Context
+	6, // 4: target.TargetResponse.status_code:type_name -> common.RPCServerResponseCode
+	7, // 5: target.TargetResponse.frequency:type_name -> frequency.Frequency.ResponseStatus
+	8, // 6: target.TargetResponse.match:type_name -> match.Match.ResponseStatus
+	7, // [7:7] is the sub-list for method output_type
+	7, // [7:7] is the sub-list for method input_type
+	7, // [7:7] is the sub-list for extension type_name
+	7, // [7:7] is the sub-list for extension extendee
+	0, // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_base_v1_rpc_target_proto_init() }

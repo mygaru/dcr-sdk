@@ -26,6 +26,7 @@ message TargetRequest {
   // This behavior can be overridden by setting individual_errors = true.
   bool individual_errors = 4;
 
+  user.Context Context = 5;
 }
 
 message TargetResponse {

@@ -17,9 +17,17 @@ message ReportRequest {
   // Type of event being tracked
   common.EventType event = 2;
 
-  // Total count of events
-  uint32 events_count = 3;
+  repeated Rule rules = 3;
 
-  // List of segment identifiers
-  repeated uint32 segment_ids = 4;
+  message Rule {
+    common.TrafficType traffic_type = 1;
+
+    // Total count of events
+    uint32 events_count = 2;
+
+    // List of segment identifiers
+    repeated uint32 segment_ids = 3;
+
+  }
+
 }

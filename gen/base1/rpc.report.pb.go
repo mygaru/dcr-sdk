@@ -27,11 +27,8 @@ type ReportRequest struct {
 	// Tracking id for BE reporting
 	TrackingId []byte `protobuf:"bytes,1,opt,name=tracking_id,json=trackingId" json:"tracking_id,omitempty"`
 	// Type of event being tracked
-	Event EventType `protobuf:"varint,2,opt,name=event,enum=common.EventType" json:"event,omitempty"`
-	// Total count of events
-	EventsCount uint32 `protobuf:"varint,3,opt,name=events_count,json=eventsCount" json:"events_count,omitempty"`
-	// List of segment identifiers
-	SegmentIds    []uint32 `protobuf:"varint,4,rep,packed,name=segment_ids,json=segmentIds" json:"segment_ids,omitempty"`
+	Event         EventType             `protobuf:"varint,2,opt,name=event,enum=common.EventType" json:"event,omitempty"`
+	Rules         []*ReportRequest_Rule `protobuf:"bytes,3,rep,name=rules" json:"rules,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -80,14 +77,69 @@ func (x *ReportRequest) GetEvent() EventType {
 	return EventType_EVENT_TYPE_IMPRESSION
 }
 
-func (x *ReportRequest) GetEventsCount() uint32 {
+func (x *ReportRequest) GetRules() []*ReportRequest_Rule {
+	if x != nil {
+		return x.Rules
+	}
+	return nil
+}
+
+type ReportRequest_Rule struct {
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	TrafficType TrafficType            `protobuf:"varint,1,opt,name=traffic_type,json=trafficType,enum=common.TrafficType" json:"traffic_type,omitempty"`
+	// Total count of events
+	EventsCount uint32 `protobuf:"varint,2,opt,name=events_count,json=eventsCount" json:"events_count,omitempty"`
+	// List of segment identifiers
+	SegmentIds    []uint32 `protobuf:"varint,3,rep,packed,name=segment_ids,json=segmentIds" json:"segment_ids,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReportRequest_Rule) Reset() {
+	*x = ReportRequest_Rule{}
+	mi := &file_base_v1_rpc_report_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReportRequest_Rule) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReportRequest_Rule) ProtoMessage() {}
+
+func (x *ReportRequest_Rule) ProtoReflect() protoreflect.Message {
+	mi := &file_base_v1_rpc_report_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReportRequest_Rule.ProtoReflect.Descriptor instead.
+func (*ReportRequest_Rule) Descriptor() ([]byte, []int) {
+	return file_base_v1_rpc_report_proto_rawDescGZIP(), []int{0, 0}
+}
+
+func (x *ReportRequest_Rule) GetTrafficType() TrafficType {
+	if x != nil {
+		return x.TrafficType
+	}
+	return TrafficType_TRAFFIC_TYPE_VIDEO
+}
+
+func (x *ReportRequest_Rule) GetEventsCount() uint32 {
 	if x != nil {
 		return x.EventsCount
 	}
 	return 0
 }
 
-func (x *ReportRequest) GetSegmentIds() []uint32 {
+func (x *ReportRequest_Rule) GetSegmentIds() []uint32 {
 	if x != nil {
 		return x.SegmentIds
 	}
@@ -98,13 +150,16 @@ var File_base_v1_rpc_report_proto protoreflect.FileDescriptor
 
 const file_base_v1_rpc_report_proto_rawDesc = "" +
 	"\n" +
-	"\x18base/v1/rpc.report.proto\x12\x06report\x1a\x14base/v1/common.proto\"\x9d\x01\n" +
+	"\x18base/v1/rpc.report.proto\x12\x06report\x1a\x14base/v1/common.proto\"\x90\x02\n" +
 	"\rReportRequest\x12\x1f\n" +
 	"\vtracking_id\x18\x01 \x01(\fR\n" +
 	"trackingId\x12'\n" +
-	"\x05event\x18\x02 \x01(\x0e2\x11.common.EventTypeR\x05event\x12!\n" +
-	"\fevents_count\x18\x03 \x01(\rR\veventsCount\x12\x1f\n" +
-	"\vsegment_ids\x18\x04 \x03(\rR\n" +
+	"\x05event\x18\x02 \x01(\x0e2\x11.common.EventTypeR\x05event\x120\n" +
+	"\x05rules\x18\x03 \x03(\v2\x1a.report.ReportRequest.RuleR\x05rules\x1a\x82\x01\n" +
+	"\x04Rule\x126\n" +
+	"\ftraffic_type\x18\x01 \x01(\x0e2\x13.common.TrafficTypeR\vtrafficType\x12!\n" +
+	"\fevents_count\x18\x02 \x01(\rR\veventsCount\x12\x1f\n" +
+	"\vsegment_ids\x18\x03 \x03(\rR\n" +
 	"segmentIdsB:B\tMyGaruSDKZ(github.com/mygaru/dcr-sdk/gen/base1;base\x92\x03\x02\b\x02b\beditionsp\xe8\a"
 
 var (
@@ -119,18 +174,22 @@ func file_base_v1_rpc_report_proto_rawDescGZIP() []byte {
 	return file_base_v1_rpc_report_proto_rawDescData
 }
 
-var file_base_v1_rpc_report_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
+var file_base_v1_rpc_report_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_base_v1_rpc_report_proto_goTypes = []any{
-	(*ReportRequest)(nil), // 0: report.ReportRequest
-	(EventType)(0),        // 1: common.EventType
+	(*ReportRequest)(nil),      // 0: report.ReportRequest
+	(*ReportRequest_Rule)(nil), // 1: report.ReportRequest.Rule
+	(EventType)(0),             // 2: common.EventType
+	(TrafficType)(0),           // 3: common.TrafficType
 }
 var file_base_v1_rpc_report_proto_depIdxs = []int32{
-	1, // 0: report.ReportRequest.event:type_name -> common.EventType
-	1, // [1:1] is the sub-list for method output_type
-	1, // [1:1] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	2, // 0: report.ReportRequest.event:type_name -> common.EventType
+	1, // 1: report.ReportRequest.rules:type_name -> report.ReportRequest.Rule
+	3, // 2: report.ReportRequest.Rule.traffic_type:type_name -> common.TrafficType
+	3, // [3:3] is the sub-list for method output_type
+	3, // [3:3] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_base_v1_rpc_report_proto_init() }
@@ -145,7 +204,7 @@ func file_base_v1_rpc_report_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_base_v1_rpc_report_proto_rawDesc), len(file_base_v1_rpc_report_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   1,
+			NumMessages:   2,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
