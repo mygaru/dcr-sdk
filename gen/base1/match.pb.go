@@ -29,6 +29,7 @@ const (
 	Match_MISS                Match_ResponseStatus = 1
 	Match_ACCESS_DENIED       Match_ResponseStatus = 2
 	Match_SERVICE_UNAVAILABLE Match_ResponseStatus = 3
+	Match_UNKNOWN_SEGMENT     Match_ResponseStatus = 4
 )
 
 // Enum value maps for Match_ResponseStatus.
@@ -38,12 +39,14 @@ var (
 		1: "MISS",
 		2: "ACCESS_DENIED",
 		3: "SERVICE_UNAVAILABLE",
+		4: "UNKNOWN_SEGMENT",
 	}
 	Match_ResponseStatus_value = map[string]int32{
 		"OK":                  0,
 		"MISS":                1,
 		"ACCESS_DENIED":       2,
 		"SERVICE_UNAVAILABLE": 3,
+		"UNKNOWN_SEGMENT":     4,
 	}
 )
 
@@ -167,17 +170,18 @@ var File_base_v1_match_proto protoreflect.FileDescriptor
 
 const file_base_v1_match_proto_rawDesc = "" +
 	"\n" +
-	"\x13base/v1/match.proto\x12\x05match\x1a\x14base/v1/common.proto\"\xb8\x01\n" +
+	"\x13base/v1/match.proto\x12\x05match\x1a\x14base/v1/common.proto\"\xcd\x01\n" +
 	"\x05Match\x1a_\n" +
 	"\x04Rule\x126\n" +
 	"\ftraffic_type\x18\x01 \x01(\x0e2\x13.common.TrafficTypeR\vtrafficType\x12\x1f\n" +
 	"\vsegment_ids\x18\x03 \x03(\rR\n" +
-	"segmentIds\"N\n" +
+	"segmentIds\"c\n" +
 	"\x0eResponseStatus\x12\x06\n" +
 	"\x02OK\x10\x00\x12\b\n" +
 	"\x04MISS\x10\x01\x12\x11\n" +
 	"\rACCESS_DENIED\x10\x02\x12\x17\n" +
-	"\x13SERVICE_UNAVAILABLE\x10\x03B:B\tMyGaruSDKZ(github.com/mygaru/dcr-sdk/gen/base1;base\x92\x03\x02\b\x02b\beditionsp\xe8\a"
+	"\x13SERVICE_UNAVAILABLE\x10\x03\x12\x13\n" +
+	"\x0fUNKNOWN_SEGMENT\x10\x04B:B\tMyGaruSDKZ(github.com/mygaru/dcr-sdk/gen/base1;base\x92\x03\x02\b\x02b\beditionsp\xe8\a"
 
 var (
 	file_base_v1_match_proto_rawDescOnce sync.Once

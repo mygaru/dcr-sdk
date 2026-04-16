@@ -23,5 +23,6 @@ message Match {
     MISS = 1;
     ACCESS_DENIED = 2;
     SERVICE_UNAVAILABLE = 3;
+    UNKNOWN_SEGMENT = 4;
   }
 }
