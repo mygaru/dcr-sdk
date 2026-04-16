@@ -14,6 +14,8 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+var ErrorUnauthorized = errors.New("unauthorized")
+
 type client struct {
 
 	// JvtToken is a byte slice used for storing JSON Web Token (JWT) data associated with the client.
@@ -38,12 +40,7 @@ type client struct {
 
 func (c *client) ensureAuthForCurrentConn() error {
 	gen := c.connGen.Load()
-	if gen == 0 {
-		// first connection
-		return nil
-	}
-
-	if gen == atomic.LoadUint64(&c.authedGen) {
+	if gen > 0 && gen == atomic.LoadUint64(&c.authedGen) {
 		// already authenticated
 		return nil
 	}
@@ -52,28 +49,40 @@ func (c *client) ensureAuthForCurrentConn() error {
 	defer c.mu.Unlock()
 
 	gen = c.connGen.Load()
-	if gen == c.authedGen {
+	if gen > 0 && gen == c.authedGen {
 		return nil
 	}
 
 	req := contract.AcquireRequest()
 	resp := contract.AcquireResponse()
-	defer contract.ReleaseRequest(req)
-	defer contract.ReleaseResponse(resp)
+	defer func() {
+		contract.ReleaseRequest(req)
+		contract.ReleaseResponse(resp)
+	}()
 
 	req.SetName(contract.Auth)
 	req.Append(c.JvtToken)
 
 	err := c.c.DoDeadline(req, resp, time.Now().Add(time.Second))
 	if err != nil {
-		c.authErr = err
-		return err
+		c.authErr = fmt.Errorf("auth is failed: %v", err)
+		return c.authErr
+	}
+
+	if resp.GetStatusCode() == base.RPCServerResponseCode_UNAUTHORIZED {
+		c.authErr = ErrorUnauthorized
+		return c.authErr
+	}
+
+	if resp.GetStatusCode() != base.RPCServerResponseCode_OK {
+		c.authErr = fmt.Errorf("auth is failed, err = response status code is not RPCServerResponseCode_OK, got = %s", resp.GetStatusCode().String())
+		return c.authErr
 	}
 
 	uid, err := uuid.Parse(string(resp.Value()))
 	if err != nil {
-		c.authErr = fmt.Errorf("parse uid from response is failed: %w", err)
-		return err
+		c.authErr = fmt.Errorf("auth is failed, err = parse uid from response is failed: %v", err)
+		return c.authErr
 	}
 
 	c.authedGen = gen

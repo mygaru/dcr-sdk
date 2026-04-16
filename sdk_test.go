@@ -1,8 +1,10 @@
 package dcr_sdk
 
 import (
+	"errors"
 	"testing"
 
+	"github.com/google/uuid"
 	base "github.com/mygaru/dcr-sdk/gen/base1"
 	"github.com/mygaru/dcr-sdk/internal/dcrMockServer"
 
@@ -17,6 +19,25 @@ const MaximumSimultaneousConnections = 4
 
 func getTestClient() *client.ShardedClient {
 	return New(&client.Configuration{Addrs: *dcrMockServer.ListenAddr, JvtToken: []byte("some token here ..."), MaximumSimultaneousConnections: MaximumSimultaneousConnections})
+}
+
+func TestAuthCloud(t *testing.T) {
+	rpc := New(&client.Configuration{
+		JvtToken: []byte("WRONG_TOKEN_HERE"),
+		Addrs:    "cloud.mygaru.com:7937",
+	})
+
+	_, _, err := rpc.Target(&base.TargetRequest{
+		Uids: []*base.UID{
+			{Id: []byte(uuid.New().String()), Type: base.UID_DEVICE_ID},
+		},
+		Match: []*base.Match_Rule{
+			{TrafficType: base.TrafficType_TRAFFIC_TYPE_VIDEO, SegmentIds: []uint32{1, 2, 3}},
+		},
+	})
+	if !errors.Is(err, client.ErrorUnauthorized) {
+		t.Fatalf("expected error to be %v, got %v", client.ErrorUnauthorized, err)
+	}
 }
 
 func TestAuth(t *testing.T) {
