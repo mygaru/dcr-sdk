@@ -10,7 +10,7 @@ import (
 	"github.com/aradilov/fastrpc"
 	"github.com/google/uuid"
 	base "github.com/mygaru/dcr-sdk/gen/base1"
-	"github.com/mygaru/dcr-sdk/internal/contract"
+	"github.com/mygaru/dcr-sdk/pkg/contract"
 	"google.golang.org/protobuf/proto"
 )
 

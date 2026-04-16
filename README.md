@@ -30,7 +30,7 @@ go get github.com/mygaru/dcr-sdk
 .
 ├── base/v1              # protobuf schemas
 ├── gen/base1            # generated protobuf Go code
-├── internal/contract    # low-level RPC wire contract
+├── pkg/contract    # low-level RPC wire contract
 ├── pkg/client           # sharded RPC client implementation
 └── sdk.go               # public constructors
 ```

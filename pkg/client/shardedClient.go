@@ -11,8 +11,8 @@ import (
 
 	"github.com/aradilov/fastrpc"
 	base "github.com/mygaru/dcr-sdk/gen/base1"
-	"github.com/mygaru/dcr-sdk/internal/contract"
 	"github.com/mygaru/dcr-sdk/internal/sdkutil"
+	"github.com/mygaru/dcr-sdk/pkg/contract"
 	"github.com/valyala/fasthttp"
 	"google.golang.org/protobuf/proto"
 )
