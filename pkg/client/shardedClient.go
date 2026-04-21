@@ -141,7 +141,8 @@ func (sc *ShardedClient) lookupGroup(serverID uint16) *clientsGroup {
 	var shard *clientsGroup
 	for i := 0; i < len(sc.clients); i++ {
 		shard = sc.clients[i]
-		if uint16(shard.id.Load()) == serverID {
+		shardID := uint16(shard.id.Load())
+		if shardID > 0 && shardID == serverID {
 			return shard
 		}
 	}
