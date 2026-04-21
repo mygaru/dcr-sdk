@@ -2,6 +2,7 @@ package client
 
 import (
 	"crypto/tls"
+	"fmt"
 	"net"
 	"runtime"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/aradilov/fastrpc"
+	"github.com/aradilov/uniqid"
 	base "github.com/mygaru/dcr-sdk/gen/base1"
 	"github.com/mygaru/dcr-sdk/internal/sdkutil"
 	"github.com/mygaru/dcr-sdk/pkg/contract"
@@ -60,14 +62,15 @@ type ShardedClient struct {
 	once sync.Once
 
 	// clients is a slice of pointers to client instances used for managing connections to multiple servers for sharding.
-	clients []clientsGroup
+	clients []*clientsGroup
 }
 
-// clientsGroup represents a structure containing a list of clients and a counter for distributing requests via round-robin.
+// clientsGroup is a structure that holds a group of client instances for managing sharded connections to the signle server.
 type clientsGroup struct {
 	// roundRobin is a counter used for load balancing to distribute requests evenly across client connections.
 	roundRobin uint64
 	clients    []*client
+	id         atomic.Uint32
 }
 
 // getClient returns a pointer to the next client in the clientsGroup's clients list using a round-robin load-balancing strategy.
@@ -81,10 +84,15 @@ func (sh *clientsGroup) getClient() *client {
 // Mock sends a mock request and returns the response, status code, and any error encountered during execution.
 // For debug usage only
 func (sc *ShardedClient) Mock(req *base.MockRequest, resp proto.Message) (proto.Message, base.RPCServerResponseCode, error) {
-	res, statusCode, err := sc.getClient().doUnary(req, resp, contract.Mock)
+	shard := sc.getGroup()
+	cl := shard.getClient()
+
+	res, statusCode, err := cl.doUnary(req, resp, contract.Mock)
 	if nil != err {
 		return nil, statusCode, err
 	}
+
+	shard.id.Store(uint32(cl.serverID))
 	return res, statusCode, nil
 }
 
@@ -94,10 +102,13 @@ func (sc *ShardedClient) Mock(req *base.MockRequest, resp proto.Message) (proto.
 // Obtain identification accuracy to determine the validity and reliability of the response.
 // For more details, see here: [LINK]
 func (sc *ShardedClient) Target(req *base.TargetRequest) (*base.TargetResponse, base.RPCServerResponseCode, error) {
-	res, statusCode, err := sc.getClient().doUnary(req, &base.TargetResponse{}, contract.Target)
+	shard := sc.getGroup()
+	cl := shard.getClient()
+	res, statusCode, err := cl.doUnary(req, &base.TargetResponse{}, contract.Target)
 	if nil != err {
 		return nil, statusCode, err
 	}
+	shard.id.Store(uint32(cl.serverID))
 	return res.(*base.TargetResponse), statusCode, nil
 }
 
@@ -105,16 +116,45 @@ func (sc *ShardedClient) Target(req *base.TargetRequest) (*base.TargetResponse, 
 // This mechanism is used to record statistical data and perform settlements between system users as part of the third-party billing strategy.
 // For more details, see here: [LINK]
 func (sc *ShardedClient) Report(req *base.ReportRequest) (base.RPCServerResponseCode, error) {
-	_, statusCode, err := sc.getClient().doUnary(req, nil, contract.Report)
+	if nil == req.TrackingId {
+		return base.RPCServerResponseCode_UNKNOWN, fmt.Errorf("tracking id is required")
+	}
+	shard := sc.lookupGroup(uniqid.GetServerID(req.TrackingId))
+	if nil == shard {
+		return base.RPCServerResponseCode_UNKNOWN, fmt.Errorf("unknown server for tracking id: %q", req.TrackingId)
+	}
+
+	_, statusCode, err := shard.getClient().doUnary(req, nil, contract.Report)
 	return statusCode, err
 }
 
-// getClient returns the next client instance from the sharded client's list using a round-robin load-balancing mechanism.
-func (sc *ShardedClient) getClient() *client {
+// IsValidTrackingID checks if the provided tracking ID is valid by ensuring it is not nil and maps to a valid shard.
+func (sc *ShardedClient) IsValidTrackingID(trackingId []byte) bool {
+	if nil == trackingId {
+		return false
+	}
+	shard := sc.lookupGroup(uniqid.GetServerID(trackingId))
+	return nil != shard
+}
+
+func (sc *ShardedClient) lookupGroup(serverID uint16) *clientsGroup {
+	var shard *clientsGroup
+	for i := 0; i < len(sc.clients); i++ {
+		shard = sc.clients[i]
+		if uint16(shard.id.Load()) == serverID {
+			return shard
+		}
+	}
+
+	return nil
+}
+
+// getGroup selects a clientsGroup instance from the sharded clients list using a round-robin load-balancing strategy.
+func (sc *ShardedClient) getGroup() *clientsGroup {
 	n := atomic.AddUint64(&sc.roundRobin, 1)
 	idx := n % uint64(len(sc.clients))
 
-	return sc.clients[idx].getClient()
+	return sc.clients[idx]
 }
 
 // PendingRequests computes the total number of pending requests across all clients managed by the ShardedClient instance.
@@ -186,7 +226,7 @@ func NewClient(cfg *Configuration, tlsConfig *tls.Config) *ShardedClient {
 		}
 
 		metrics := buildShardMetrics(shardAddr)
-		shard := clientsGroup{}
+		shard := &clientsGroup{}
 
 		for i := 0; i < cfg.MaximumSimultaneousConnections; i++ {
 			rpc := &client{

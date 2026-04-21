@@ -1,6 +1,7 @@
 package dcrMockServer
 
 import (
+	"encoding/binary"
 	"flag"
 	"fmt"
 	"log"
@@ -72,13 +73,17 @@ func dcrMockHandler(ctxv fastrpc.HandlerCtx) fastrpc.HandlerCtx {
 
 	reqn := ctx.Request.GetName()
 	switch reqn {
-	//case contract.Target:
-	// target handler here ...
+	case contract.Target:
+	//target handler here ...
 	case contract.Auth:
 		ctx.Logger().Printf("Received auth token: %q", ctx.Request.Value())
 		ctx.Response.SetStatusCode(base.RPCServerResponseCode_OK)
 		authConn.SetUUID(uuid.New())
-		_, _ = ctx.Write([]byte(authConn.GetUUID().String()))
+		buf := ctx.Response.SwapValue(nil)
+		buf = binary.LittleEndian.AppendUint16(buf, 1024)
+		payer := uuid.New()
+		buf = append(buf, payer[:]...)
+		ctx.Response.SwapValue(buf)
 	case contract.Mock:
 		mockTarget(ctx, authConn)
 	default:

@@ -1,6 +1,7 @@
 package client
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"sync"
@@ -36,6 +37,7 @@ type client struct {
 	authedGen uint64
 	authErr   error
 	authId    uuid.UUID
+	serverID  uint16
 }
 
 func (c *client) ensureAuthForCurrentConn() error {
@@ -79,7 +81,14 @@ func (c *client) ensureAuthForCurrentConn() error {
 		return c.authErr
 	}
 
-	uid, err := uuid.Parse(string(resp.Value()))
+	if len(resp.Value()) != 18 {
+		c.authErr = fmt.Errorf("auth is failed, err = response value length is not equal to uuid size + 2 bytes for server id, got = %d", len(resp.Value()))
+		return c.authErr
+	}
+
+	buf := resp.Value()
+
+	uid, err := uuid.FromBytes(buf[2:])
 	if err != nil {
 		c.authErr = fmt.Errorf("auth is failed, err = parse uid from response is failed: %v", err)
 		return c.authErr
@@ -88,8 +97,14 @@ func (c *client) ensureAuthForCurrentConn() error {
 	c.authedGen = gen
 	c.authErr = nil
 	c.authId = uid
+	c.serverID = binary.LittleEndian.Uint16(buf[:2])
 
 	return nil
+}
+
+// GetServerID returns the identifier of the server currently associated with the client.
+func (c *client) GetServerID() uint16 {
+	return c.serverID
 }
 
 // GetUUID returns the UUID associated with the current authenticated client connection.

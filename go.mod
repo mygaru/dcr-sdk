@@ -1,6 +1,6 @@
 module github.com/mygaru/dcr-sdk
 
-go 1.24.0
+go 1.25.3
 
 require (
 	github.com/VictoriaMetrics/metrics v1.43.1
@@ -12,6 +12,7 @@ require (
 
 require (
 	github.com/andybalholm/brotli v1.2.0 // indirect
+	github.com/aradilov/uniqid v0.0.0-20251211143117-3ad2e4fb8e5e // indirect
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/klauspost/compress v1.18.2 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
