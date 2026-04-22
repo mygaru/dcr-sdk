@@ -48,8 +48,8 @@ message Frequency {
 
     // Modes for operating the cap
     enum Mode {
-      CAP_MODE_FREEZE = 0;                  // Apply freeze and wait for an event
-      CAP_MODE_CAPPING = 1;                 // Increment frequency cap upon event
+      CAP_MODE_CAPPING = 0;                 // Increment frequency cap upon event
+      CAP_MODE_FREEZE = 1;                  // Apply freeze and wait for an event
     }
   }
 }

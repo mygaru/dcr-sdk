@@ -90,7 +90,9 @@ type ReportRequest_Rule struct {
 	// Total count of events
 	EventsCount uint32 `protobuf:"varint,2,opt,name=events_count,json=eventsCount" json:"events_count,omitempty"`
 	// List of segment identifiers
-	SegmentIds    []uint32 `protobuf:"varint,3,rep,packed,name=segment_ids,json=segmentIds" json:"segment_ids,omitempty"`
+	SegmentIds []uint32 `protobuf:"varint,3,rep,packed,name=segment_ids,json=segmentIds" json:"segment_ids,omitempty"`
+	// Rules for increasing frequency capping keys.
+	Frequency     []uint64 `protobuf:"varint,4,rep,packed,name=frequency" json:"frequency,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -146,21 +148,29 @@ func (x *ReportRequest_Rule) GetSegmentIds() []uint32 {
 	return nil
 }
 
+func (x *ReportRequest_Rule) GetFrequency() []uint64 {
+	if x != nil {
+		return x.Frequency
+	}
+	return nil
+}
+
 var File_base_v1_rpc_report_proto protoreflect.FileDescriptor
 
 const file_base_v1_rpc_report_proto_rawDesc = "" +
 	"\n" +
-	"\x18base/v1/rpc.report.proto\x12\x06report\x1a\x14base/v1/common.proto\"\x90\x02\n" +
+	"\x18base/v1/rpc.report.proto\x12\x06report\x1a\x14base/v1/common.proto\"\xae\x02\n" +
 	"\rReportRequest\x12\x1f\n" +
 	"\vtracking_id\x18\x01 \x01(\fR\n" +
 	"trackingId\x12'\n" +
 	"\x05event\x18\x02 \x01(\x0e2\x11.common.EventTypeR\x05event\x120\n" +
-	"\x05rules\x18\x03 \x03(\v2\x1a.report.ReportRequest.RuleR\x05rules\x1a\x82\x01\n" +
+	"\x05rules\x18\x03 \x03(\v2\x1a.report.ReportRequest.RuleR\x05rules\x1a\xa0\x01\n" +
 	"\x04Rule\x126\n" +
 	"\ftraffic_type\x18\x01 \x01(\x0e2\x13.common.TrafficTypeR\vtrafficType\x12!\n" +
 	"\fevents_count\x18\x02 \x01(\rR\veventsCount\x12\x1f\n" +
 	"\vsegment_ids\x18\x03 \x03(\rR\n" +
-	"segmentIdsB:B\tMyGaruSDKZ(github.com/mygaru/dcr-sdk/gen/base1;base\x92\x03\x02\b\x02b\beditionsp\xe8\a"
+	"segmentIds\x12\x1c\n" +
+	"\tfrequency\x18\x04 \x03(\x04R\tfrequencyB:B\tMyGaruSDKZ(github.com/mygaru/dcr-sdk/gen/base1;base\x92\x03\x02\b\x02b\beditionsp\xe8\a"
 
 var (
 	file_base_v1_rpc_report_proto_rawDescOnce sync.Once

@@ -28,6 +28,10 @@ message ReportRequest {
     // List of segment identifiers
     repeated uint32 segment_ids = 3;
 
+    // Rules for increasing frequency capping keys.
+    repeated uint64 frequency = 4;
+
+
   }
 
 }

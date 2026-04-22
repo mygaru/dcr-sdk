@@ -98,13 +98,26 @@ req := &base.TargetRequest{
       {Id: []byte("019d2555-7874-7e9d-a284-9b45a0b2f165"), Type: base.UID_DEVICE_ID},
       {Id: []byte("AAABBBCCCDDDEEE"), Type: base.UID_EXTERNAL_UID},
    },
+   // List of segments to be checked
    Match: []*base.Match_Rule{
       {TrafficType: base.TrafficType_TRAFFIC_TYPE_DISPLAY, SegmentIds: []uint32{1, 2, 3}},
       {TrafficType: base.TrafficType_TRAFFIC_TYPE_VIDEO, SegmentIds: []uint32{4, 5}},
    },
+   // List of frequency keys to be checked;
+   // Modes for operating the cap
+   // - CAP_MODE_CAPPING = 0;  Increment frequency cap upon event
+   // - CAP_MODE_FREEZE = 1;  Apply freeze and wait for an event
+
    Frequency: []*base.Frequency_Rule{
-      {Key: 429496729345, Limit: &base.Frequency_Limit{AdsPerUser: 10, Period: 1, PeriodType:base.Frequency_Limit_TYPE_WEEK}},
+      {Key: 429496729345, Limit: &base.Frequency_Limit{AdsPerUser: 10, Period: 1, Mode: base.CAP_MODE_FREEZE, PeriodType:base.Frequency_Limit_TYPE_WEEK}},
       {Key: 429412463295, Limit: &base.Frequency_Limit{AdsPerUser: 1, Period: 1, PeriodType:base.Frequency_Limit_TYPE_MINUTE}},
+   },
+
+   Context: &base.Context{
+      Ip: []byte("127.0.0.1"),
+      Ua: []byte("MY USER AGENT HERE"),
+      Url: []byte("https://www.site1.com"),
+      Referrer: []byte("https://www.site2.com"),
    },
 }
 
@@ -144,10 +157,21 @@ Example:
 ```go
 req := &base.ReportRequest{
    TrackingId: []byte("0CA45E006B041868I1"),
-   Event: base.EventType_EVENT_TYPE_IMPRESSION,
-   EventsCount: 100500,
-   SegmentIds: []uint32{1, 2, 5},
-}
+   Event:      base.EventType_EVENT_TYPE_IMPRESSION,
+   Rules: []*base.ReportRequest_Rule{
+    {
+		// Traffic type used for pricing
+		TrafficType: base.TrafficType_TRAFFIC_TYPE_VIDEO, 
+		
+		// Amount of events, aka Impressions
+		EventsCount: 1, 
+		// List of segments used to make the decision
+		SegmentIds: []uint32{1,2,3}, 
+		
+		// List of keys used to make the decision and which need to be increased
+		Frequency: []uint64{429496729345}},
+   },
+   }
 status, err := cli.Report(req)
 if err != nil {
     panic(err)
