@@ -25,10 +25,11 @@ const (
 type UID_Type int32
 
 const (
-	UID_OTP          UID_Type = 0
-	UID_PARTNER_UID  UID_Type = 2
-	UID_DEVICE_ID    UID_Type = 3
-	UID_EXTERNAL_UID UID_Type = 4
+	UID_OTP                 UID_Type = 0
+	UID_PARTNER_UID         UID_Type = 2
+	UID_DEVICE_ID           UID_Type = 3
+	UID_EXTERNAL_UID        UID_Type = 4
+	UID_DEVICE_ID_ENCRYPTED UID_Type = 5
 )
 
 // Enum value maps for UID_Type.
@@ -38,12 +39,14 @@ var (
 		2: "PARTNER_UID",
 		3: "DEVICE_ID",
 		4: "EXTERNAL_UID",
+		5: "DEVICE_ID_ENCRYPTED",
 	}
 	UID_Type_value = map[string]int32{
-		"OTP":          0,
-		"PARTNER_UID":  2,
-		"DEVICE_ID":    3,
-		"EXTERNAL_UID": 4,
+		"OTP":                 0,
+		"PARTNER_UID":         2,
+		"DEVICE_ID":           3,
+		"EXTERNAL_UID":        4,
+		"DEVICE_ID_ENCRYPTED": 5,
 	}
 )
 
@@ -204,15 +207,16 @@ const file_base_v1_user_proto_rawDesc = "" +
 	"\x02ip\x18\x01 \x01(\fR\x02ip\x12\x0e\n" +
 	"\x02ua\x18\x02 \x01(\fR\x02ua\x12\x10\n" +
 	"\x03url\x18\x03 \x01(\fR\x03url\x12\x1a\n" +
-	"\breferrer\x18\x04 \x01(\fR\breferrer\"|\n" +
+	"\breferrer\x18\x04 \x01(\fR\breferrer\"\x95\x01\n" +
 	"\x03UID\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\fR\x02id\x12\"\n" +
-	"\x04type\x18\x02 \x01(\x0e2\x0e.user.UID.TypeR\x04type\"A\n" +
+	"\x04type\x18\x02 \x01(\x0e2\x0e.user.UID.TypeR\x04type\"Z\n" +
 	"\x04Type\x12\a\n" +
 	"\x03OTP\x10\x00\x12\x0f\n" +
 	"\vPARTNER_UID\x10\x02\x12\r\n" +
 	"\tDEVICE_ID\x10\x03\x12\x10\n" +
-	"\fEXTERNAL_UID\x10\x04B:B\tmyGaruSDKZ(github.com/mygaru/dcr-sdk/gen/base1;base\x92\x03\x02\b\x02b\beditionsp\xe8\a"
+	"\fEXTERNAL_UID\x10\x04\x12\x17\n" +
+	"\x13DEVICE_ID_ENCRYPTED\x10\x05B:B\tmyGaruSDKZ(github.com/mygaru/dcr-sdk/gen/base1;base\x92\x03\x02\b\x02b\beditionsp\xe8\a"
 
 var (
 	file_base_v1_user_proto_rawDescOnce sync.Once

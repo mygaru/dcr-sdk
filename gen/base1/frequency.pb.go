@@ -136,19 +136,19 @@ func (Frequency_Limit_Type) EnumDescriptor() ([]byte, []int) {
 type Frequency_Limit_Mode int32
 
 const (
-	Frequency_Limit_CAP_MODE_FREEZE  Frequency_Limit_Mode = 0 // Apply freeze and wait for an event
-	Frequency_Limit_CAP_MODE_CAPPING Frequency_Limit_Mode = 1 // Increment frequency cap upon event
+	Frequency_Limit_CAP_MODE_CAPPING Frequency_Limit_Mode = 0 // Increment frequency cap upon event
+	Frequency_Limit_CAP_MODE_FREEZE  Frequency_Limit_Mode = 1 // Apply freeze and wait for an event
 )
 
 // Enum value maps for Frequency_Limit_Mode.
 var (
 	Frequency_Limit_Mode_name = map[int32]string{
-		0: "CAP_MODE_FREEZE",
-		1: "CAP_MODE_CAPPING",
+		0: "CAP_MODE_CAPPING",
+		1: "CAP_MODE_FREEZE",
 	}
 	Frequency_Limit_Mode_value = map[string]int32{
-		"CAP_MODE_FREEZE":  0,
-		"CAP_MODE_CAPPING": 1,
+		"CAP_MODE_CAPPING": 0,
+		"CAP_MODE_FREEZE":  1,
 	}
 )
 
@@ -344,7 +344,7 @@ func (x *Frequency_Limit) GetCapMode() Frequency_Limit_Mode {
 	if x != nil {
 		return x.CapMode
 	}
-	return Frequency_Limit_CAP_MODE_FREEZE
+	return Frequency_Limit_CAP_MODE_CAPPING
 }
 
 func (x *Frequency_Limit) GetFreezePeriodSeconds() uint32 {
@@ -377,9 +377,9 @@ const file_base_v1_frequency_proto_rawDesc = "" +
 	"\tTYPE_HOUR\x10\x01\x12\f\n" +
 	"\bTYPE_DAY\x10\x02\x12\r\n" +
 	"\tTYPE_WEEK\x10\x03\"1\n" +
-	"\x04Mode\x12\x13\n" +
-	"\x0fCAP_MODE_FREEZE\x10\x00\x12\x14\n" +
-	"\x10CAP_MODE_CAPPING\x10\x01\"\xa6\x01\n" +
+	"\x04Mode\x12\x14\n" +
+	"\x10CAP_MODE_CAPPING\x10\x00\x12\x13\n" +
+	"\x0fCAP_MODE_FREEZE\x10\x01\"\xa6\x01\n" +
 	"\x0eResponseStatus\x12\x16\n" +
 	"\x12STATUS_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rSTATUS_EXCEED\x10\x01\x12\x11\n" +

@@ -25,6 +25,8 @@ message UID {
     PARTNER_UID = 2;
     DEVICE_ID = 3;
     EXTERNAL_UID = 4;
+    DEVICE_ID_ENCRYPTED = 5;
+
   }
 
 }
