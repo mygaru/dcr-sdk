@@ -278,10 +278,22 @@ func normalizeConfiguration(cfg *Configuration) *Configuration {
 	if cfg.MaximumSimultaneousConnections <= 0 {
 		cfg.MaximumSimultaneousConnections = runtime.GOMAXPROCS(-1)
 	}
+	cfg.Addrs = normalizeAddrs(cfg.Addrs)
 	if len(cfg.Addrs) == 0 {
 		cfg.Addrs = defaultCloudAddr
 	}
 	return cfg
+}
+
+func normalizeAddrs(addrs string) string {
+	var normalized []string
+	for _, addr := range strings.Split(addrs, ",") {
+		addr = strings.TrimSpace(addr)
+		if addr != "" {
+			normalized = append(normalized, addr)
+		}
+	}
+	return strings.Join(normalized, ",")
 }
 
 func buildShardMetrics(shardAddr string) [contract.MaxRequestIdentifier + 1]*metricsGroup {

@@ -51,7 +51,7 @@ func (c *client) ensureAuthForCurrentConn() error {
 	defer c.mu.Unlock()
 
 	gen = c.connGen.Load()
-	if gen > 0 && gen == c.authedGen {
+	if gen > 0 && gen == atomic.LoadUint64(&c.authedGen) {
 		return nil
 	}
 
@@ -65,7 +65,7 @@ func (c *client) ensureAuthForCurrentConn() error {
 	req.SetName(contract.Auth)
 	req.Append(c.JvtToken)
 
-	err := c.c.DoDeadline(req, resp, time.Now().Add(time.Second))
+	err := c.c.DoDeadline(req, resp, time.Now().Add(c.maxRequestDuration))
 	if err != nil {
 		c.authErr = fmt.Errorf("auth is failed: %v", err)
 		return c.authErr
@@ -94,7 +94,7 @@ func (c *client) ensureAuthForCurrentConn() error {
 		return c.authErr
 	}
 
-	c.authedGen = gen
+	atomic.StoreUint64(&c.authedGen, c.connGen.Load())
 	c.authErr = nil
 	c.authId = uid
 	c.serverID = binary.LittleEndian.Uint16(buf[:2])
@@ -137,16 +137,18 @@ func (c *client) doUnary(req, resp proto.Message, reqn contract.RPCRegister) (pr
 	st := time.Now()
 	rpcReq := contract.AcquireRequest()
 	rpcResp := contract.AcquireResponse()
+	defer func() {
+		contract.ReleaseRequest(rpcReq)
+		contract.ReleaseResponse(rpcResp)
+	}()
 
 	rpcReq.SetName(reqn)
 	rpcReq.Append(raw)
 
 	err = c.c.DoDeadline(rpcReq, rpcResp, st.Add(c.maxRequestDuration))
 	metricGroup.duration.UpdateDuration(st)
-	contract.ReleaseRequest(rpcReq)
 	if err != nil {
 		c.countError(reqn, err, rpcResp)
-		contract.ReleaseResponse(rpcResp)
 		return nil, base.RPCServerResponseCode_NETWORK_ERROR, fmt.Errorf("error when calling '%s': %s", reqn, err)
 	}
 
@@ -154,13 +156,11 @@ func (c *client) doUnary(req, resp proto.Message, reqn contract.RPCRegister) (pr
 	if statusCode != base.RPCServerResponseCode_OK {
 		err = fmt.Errorf("RPC[%q]: %s", statusCode.String(), rpcResp.Value())
 		c.countError(reqn, nil, rpcResp)
-		contract.ReleaseResponse(rpcResp)
 		return nil, statusCode, err
 	}
 
 	if nil != resp {
 		err = proto.Unmarshal(rpcResp.Value(), resp)
-		contract.ReleaseResponse(rpcResp)
 	}
 
 	if nil != err {
