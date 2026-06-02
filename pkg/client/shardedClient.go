@@ -6,7 +6,6 @@ import (
 	"net"
 	"runtime"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -25,7 +24,12 @@ type Configuration struct {
 	// Addrs specifies the comma-separated list of server addresses used for sharding the client connections.
 	Addrs string
 
-	// Client's JVT token for authentication.
+	// Client's JWT token for authentication.
+	JwtToken []byte
+
+	// Client's JWT token for authentication.
+	//
+	// Deprecated: use JwtToken.
 	JvtToken []byte
 
 	// MaxRequestDuration specifies the maximum duration allowed for each request to prevent excessive timeouts or delays.
@@ -58,8 +62,6 @@ type ShardedClient struct {
 
 	// roundRobin is a counter used for load balancing to distribute requests evenly across client connections.
 	roundRobin uint64
-
-	once sync.Once
 
 	// clients is a slice of pointers to client instances used for managing connections to multiple servers for sharding.
 	clients []*clientsGroup
@@ -195,31 +197,6 @@ func NewClient(cfg *Configuration, tlsConfig *tls.Config) *ShardedClient {
 
 	sc := &ShardedClient{Configuration: *cfg}
 
-	maxRequestDuration := sc.MaxRequestDuration
-	if maxRequestDuration <= 0 {
-		maxRequestDuration = defaultMaxRequestDuration
-	}
-
-	maxDialDuration := sc.MaxDialDuration
-	if maxDialDuration == 0 {
-		maxDialDuration = maxRequestDuration
-	}
-
-	maxPendingRequests := sc.MaxPendingRequests
-	if maxPendingRequests == 0 {
-		maxPendingRequests = defaultMaxPendingRequests
-	}
-
-	readBufferSize := sc.ReadBufferSize
-	if readBufferSize == 0 {
-		readBufferSize = defaultBufferSize
-	}
-
-	writeBufferSize := sc.WriteBufferSize
-	if writeBufferSize == 0 {
-		writeBufferSize = defaultBufferSize
-	}
-
 	for _, shardAddr := range strings.Split(cfg.Addrs, ",") {
 		shardAddr = strings.TrimSpace(shardAddr)
 		if shardAddr == "" {
@@ -231,9 +208,9 @@ func NewClient(cfg *Configuration, tlsConfig *tls.Config) *ShardedClient {
 
 		for i := 0; i < cfg.MaximumSimultaneousConnections; i++ {
 			rpc := &client{
-				maxRequestDuration: maxRequestDuration,
+				maxRequestDuration: cfg.MaxRequestDuration,
 				metricGroups:       metrics,
-				JvtToken:           cfg.JvtToken,
+				JwtToken:           cfg.JwtToken,
 				c: &fastrpc.Client{
 					SniffHeader:     sdkutil.SniffHeader,
 					ProtocolVersion: sdkutil.ProtocolVersion,
@@ -244,17 +221,17 @@ func NewClient(cfg *Configuration, tlsConfig *tls.Config) *ShardedClient {
 					Addr:      shardAddr,
 					// High-read timeout helps avoid frequent reconnects on mostly idle connections.
 					ReadTimeout:        time.Minute,
-					WriteTimeout:       maxRequestDuration * 10,
-					MaxPendingRequests: maxPendingRequests,
+					WriteTimeout:       cfg.MaxRequestDuration * 10,
+					MaxPendingRequests: cfg.MaxPendingRequests,
 					CompressType:       fastrpc.CompressSnappy,
-					WriteBufferSize:    writeBufferSize,
-					ReadBufferSize:     readBufferSize,
+					WriteBufferSize:    cfg.WriteBufferSize,
+					ReadBufferSize:     cfg.ReadBufferSize,
 				},
 			}
 
 			rpcRef := rpc
 			rpc.c.Dial = func(addr string) (net.Conn, error) {
-				conn, err := fasthttp.DialTimeout(addr, maxDialDuration)
+				conn, err := fasthttp.DialTimeout(addr, cfg.MaxDialDuration)
 				if err != nil {
 					return nil, err
 				}
@@ -275,14 +252,36 @@ func normalizeConfiguration(cfg *Configuration) *Configuration {
 	if cfg == nil {
 		cfg = &Configuration{}
 	}
-	if cfg.MaximumSimultaneousConnections <= 0 {
-		cfg.MaximumSimultaneousConnections = runtime.GOMAXPROCS(-1)
+	normalized := *cfg
+	if normalized.MaximumSimultaneousConnections <= 0 {
+		normalized.MaximumSimultaneousConnections = runtime.GOMAXPROCS(-1)
 	}
-	cfg.Addrs = normalizeAddrs(cfg.Addrs)
-	if len(cfg.Addrs) == 0 {
-		cfg.Addrs = defaultCloudAddr
+	normalized.Addrs = normalizeAddrs(normalized.Addrs)
+	if len(normalized.Addrs) == 0 {
+		normalized.Addrs = defaultCloudAddr
 	}
-	return cfg
+	if normalized.MaxRequestDuration <= 0 {
+		normalized.MaxRequestDuration = defaultMaxRequestDuration
+	}
+	if normalized.MaxDialDuration <= 0 {
+		normalized.MaxDialDuration = normalized.MaxRequestDuration
+	}
+	if normalized.MaxPendingRequests <= 0 {
+		normalized.MaxPendingRequests = defaultMaxPendingRequests
+	}
+	if normalized.ReadBufferSize <= 0 {
+		normalized.ReadBufferSize = defaultBufferSize
+	}
+	if normalized.WriteBufferSize <= 0 {
+		normalized.WriteBufferSize = defaultBufferSize
+	}
+	if len(normalized.JwtToken) == 0 {
+		normalized.JwtToken = normalized.JvtToken
+	}
+	if len(normalized.JvtToken) == 0 {
+		normalized.JvtToken = normalized.JwtToken
+	}
+	return &normalized
 }
 
 func normalizeAddrs(addrs string) string {
@@ -300,7 +299,7 @@ func buildShardMetrics(shardAddr string) [contract.MaxRequestIdentifier + 1]*met
 	var metrics [contract.MaxRequestIdentifier + 1]*metricsGroup
 	for i := 1; i <= int(contract.MaxRequestIdentifier); i++ {
 		req := contract.RPCRegister(i)
-		metrics[i] = newMetricsGroup(shardAddr, req.String())
+		metrics[i] = newMetricsGroup(req.String(), shardAddr)
 	}
 	return metrics
 }

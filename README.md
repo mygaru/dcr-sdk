@@ -54,6 +54,9 @@ type Configuration struct {
     // By default: cloud.mygaru.com:7943
     Addrs string
 
+	// JWT token used for authentication.
+	JwtToken []byte
+
     //Maximum allowed duration for a request.
     //If zero, a default timeout is used.
     MaxRequestDuration time.Duration

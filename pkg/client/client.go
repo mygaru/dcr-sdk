@@ -19,8 +19,8 @@ var ErrorUnauthorized = errors.New("unauthorized")
 
 type client struct {
 
-	// JvtToken is a byte slice used for storing JSON Web Token (JWT) data associated with the client.
-	JvtToken []byte
+	// JwtToken is a byte slice used for storing JSON Web Token (JWT) data associated with the client.
+	JwtToken []byte
 
 	// maxRequestDuration specifies the maximum duration allowed for a single request to complete before timing out.
 	maxRequestDuration time.Duration
@@ -63,7 +63,7 @@ func (c *client) ensureAuthForCurrentConn() error {
 	}()
 
 	req.SetName(contract.Auth)
-	req.Append(c.JvtToken)
+	req.Append(c.JwtToken)
 
 	err := c.c.DoDeadline(req, resp, time.Now().Add(c.maxRequestDuration))
 	if err != nil {
@@ -145,6 +145,7 @@ func (c *client) doUnary(req, resp proto.Message, reqn contract.RPCRegister) (pr
 	rpcReq.SetName(reqn)
 	rpcReq.Append(raw)
 
+	metricGroup.request.Inc()
 	err = c.c.DoDeadline(rpcReq, rpcResp, st.Add(c.maxRequestDuration))
 	metricGroup.duration.UpdateDuration(st)
 	if err != nil {
