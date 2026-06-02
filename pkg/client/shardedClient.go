@@ -14,7 +14,6 @@ import (
 	base "github.com/mygaru/dcr-sdk/gen/base1"
 	"github.com/mygaru/dcr-sdk/internal/sdkutil"
 	"github.com/mygaru/dcr-sdk/pkg/contract"
-	"github.com/valyala/fasthttp"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -37,6 +36,10 @@ type Configuration struct {
 
 	// MaxDialDuration specifies the maximum duration allowed for establishing a connection before timing out.
 	MaxDialDuration time.Duration
+
+	// DNSRefreshInterval specifies how often hostname addresses are re-resolved.
+	// If zero, a default refresh interval is used. If negative, periodic refresh is disabled.
+	DNSRefreshInterval time.Duration
 
 	// MaxPendingRequests is the maximum number of pending requests
 	// the client may issue until the server responds to them.
@@ -205,6 +208,7 @@ func NewClient(cfg *Configuration, tlsConfig *tls.Config) *ShardedClient {
 
 		metrics := buildShardMetrics(shardAddr)
 		shard := &clientsGroup{}
+		dialer := newDNSDialer(shardAddr, cfg.MaxDialDuration, cfg.DNSRefreshInterval)
 
 		for i := 0; i < cfg.MaximumSimultaneousConnections; i++ {
 			rpc := &client{
@@ -231,7 +235,7 @@ func NewClient(cfg *Configuration, tlsConfig *tls.Config) *ShardedClient {
 
 			rpcRef := rpc
 			rpc.c.Dial = func(addr string) (net.Conn, error) {
-				conn, err := fasthttp.DialTimeout(addr, cfg.MaxDialDuration)
+				conn, err := dialer.dial(rpcRef)
 				if err != nil {
 					return nil, err
 				}
@@ -265,6 +269,9 @@ func normalizeConfiguration(cfg *Configuration) *Configuration {
 	}
 	if normalized.MaxDialDuration <= 0 {
 		normalized.MaxDialDuration = normalized.MaxRequestDuration
+	}
+	if normalized.DNSRefreshInterval == 0 {
+		normalized.DNSRefreshInterval = defaultDNSRefreshInterval
 	}
 	if normalized.MaxPendingRequests <= 0 {
 		normalized.MaxPendingRequests = defaultMaxPendingRequests

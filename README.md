@@ -65,6 +65,11 @@ type Configuration struct {
     //If zero, it falls back to `MaxRequestDuration`.
     MaxDialDuration    time.Duration
 
+	// How often hostnames are re-resolved.
+	// If zero, the default refresh interval is used.
+	// If negative, periodic refresh is disabled.
+	DNSRefreshInterval time.Duration
+
     //Maximum number of in-flight requests per underlying transport client.
     MaxPendingRequests int
 
