@@ -91,9 +91,9 @@ func TestNew(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client := New(tt.cfg)
-			if client.Configuration.Addrs != tt.expectAddr {
-				t.Errorf("expected addrs to be %q, got %q", tt.expectAddr, client.Configuration.Addrs)
+			sdk := New(tt.cfg)
+			if sdk.Configuration.Addrs != tt.expectAddr {
+				t.Errorf("expected addrs to be %q, got %q", tt.expectAddr, sdk.Configuration.Addrs)
 			}
 		})
 	}
