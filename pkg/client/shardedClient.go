@@ -17,7 +17,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const defaultCloudAddr = "cloud.mygaru.com:7943"
+const defaultCloudAddr = "cloud.mygaru.com:7937"
 
 type Configuration struct {
 	// Addrs specifies the comma-separated list of server addresses used for sharding the client connections.

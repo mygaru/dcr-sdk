@@ -51,7 +51,7 @@ The transport client is configured with `client.Configuration`.
 ```go
 type Configuration struct {
 	// Comma-separated list of shard addresses.
-    // By default: cloud.mygaru.com:7943
+    // By default: cloud.mygaru.com:7937
     Addrs string
 
 	// JWT token used for authentication.
