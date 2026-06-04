@@ -35,7 +35,6 @@ type client struct {
 	mu      sync.Mutex
 
 	authedGen uint64
-	authErr   error
 	authId    uuid.UUID
 	serverID  uint16
 }
@@ -70,35 +69,29 @@ func (c *client) ensureAuthForCurrentConnLocked() error {
 
 	err := c.c.DoDeadline(req, resp, time.Now().Add(c.maxRequestDuration))
 	if err != nil {
-		c.authErr = fmt.Errorf("auth is failed: %v", err)
-		return c.authErr
+		return fmt.Errorf("auth is failed: %v", err)
 	}
 
 	if resp.GetStatusCode() == base.RPCServerResponseCode_UNAUTHORIZED {
-		c.authErr = ErrorUnauthorized
-		return c.authErr
+		return ErrorUnauthorized
 	}
 
 	if resp.GetStatusCode() != base.RPCServerResponseCode_OK {
-		c.authErr = fmt.Errorf("auth is failed, err = response status code is not RPCServerResponseCode_OK, got = %s", resp.GetStatusCode().String())
-		return c.authErr
+		return fmt.Errorf("auth is failed, err = response status code is not RPCServerResponseCode_OK, got = %s", resp.GetStatusCode().String())
 	}
 
 	if len(resp.Value()) != 18 {
-		c.authErr = fmt.Errorf("auth is failed, err = response value length is not equal to uuid size + 2 bytes for server id, got = %d", len(resp.Value()))
-		return c.authErr
+		return fmt.Errorf("auth is failed, err = response value length is not equal to uuid size + 2 bytes for server id, got = %d", len(resp.Value()))
 	}
 
 	buf := resp.Value()
 
 	uid, err := uuid.FromBytes(buf[2:])
 	if err != nil {
-		c.authErr = fmt.Errorf("auth is failed, err = parse uid from response is failed: %v", err)
-		return c.authErr
+		return fmt.Errorf("auth is failed, err = parse uid from response is failed: %v", err)
 	}
 
 	atomic.StoreUint64(&c.authedGen, c.connGen.Load())
-	c.authErr = nil
 	c.authId = uid
 	c.serverID = binary.LittleEndian.Uint16(buf[:2])
 
@@ -111,7 +104,7 @@ func (c *client) ensureAuthForCurrentConnDeadline() error {
 	}
 
 	if !c.mu.TryLock() {
-		return ErrorUnauthorized
+		return fastrpc.ErrTimeout
 	}
 
 	errCh := make(chan error, 1)
