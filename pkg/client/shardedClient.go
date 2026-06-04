@@ -26,11 +26,6 @@ type Configuration struct {
 	// Client's JWT token for authentication.
 	JwtToken []byte
 
-	// Client's JWT token for authentication.
-	//
-	// Deprecated: use JwtToken.
-	JvtToken []byte
-
 	// MaxRequestDuration specifies the maximum duration allowed for each request to prevent excessive timeouts or delays.
 	MaxRequestDuration time.Duration
 
@@ -281,12 +276,6 @@ func normalizeConfiguration(cfg *Configuration) *Configuration {
 	}
 	if normalized.WriteBufferSize <= 0 {
 		normalized.WriteBufferSize = defaultBufferSize
-	}
-	if len(normalized.JwtToken) == 0 {
-		normalized.JwtToken = normalized.JvtToken
-	}
-	if len(normalized.JvtToken) == 0 {
-		normalized.JvtToken = normalized.JwtToken
 	}
 	return &normalized
 }

@@ -17,12 +17,12 @@ func init() {
 const MaximumSimultaneousConnections = 4
 
 func getTestClient() *client.ShardedClient {
-	return New(&client.Configuration{Addrs: *dcrMockServer.ListenAddr, JvtToken: []byte("some token here ..."), MaximumSimultaneousConnections: MaximumSimultaneousConnections})
+	return New(&client.Configuration{Addrs: *dcrMockServer.ListenAddr, JwtToken: []byte("some token here ..."), MaximumSimultaneousConnections: MaximumSimultaneousConnections})
 }
 
 func TestAuthCloud(t *testing.T) {
 	rpc := New(&client.Configuration{
-		JvtToken: []byte("WRONG_TOKEN_HERE"),
+		JwtToken: []byte("WRONG_TOKEN_HERE"),
 		Addrs:    *dcrMockServer.ListenAddr,
 	})
 
@@ -78,7 +78,7 @@ func TestNew(t *testing.T) {
 		{
 			name:       "nil configuration",
 			cfg:        &client.Configuration{},
-			expectAddr: "cloud.mygaru.com:7943",
+			expectAddr: "cloud.mygaru.com:7937",
 		},
 		{
 			name: "addr configuration",

@@ -89,16 +89,6 @@ func TestNewClientDoesNotMutateConfiguration(t *testing.T) {
 	}
 }
 
-func TestNewClientSupportsDeprecatedJvtToken(t *testing.T) {
-	client := NewClient(&Configuration{Addrs: "host-a:1", JvtToken: []byte("legacy-token")}, nil)
-	if string(client.Configuration.JwtToken) != "legacy-token" {
-		t.Fatalf("expected JwtToken to use deprecated JvtToken fallback, got %q", client.Configuration.JwtToken)
-	}
-	if string(client.clients[0].clients[0].JwtToken) != "legacy-token" {
-		t.Fatalf("expected internal client to use deprecated JvtToken fallback, got %q", client.clients[0].clients[0].JwtToken)
-	}
-}
-
 func TestBuildShardMetricsUsesRequestAndAddrLabels(t *testing.T) {
 	shardAddr := "metrics-labels.local:7943"
 	groups := buildShardMetrics(shardAddr)
