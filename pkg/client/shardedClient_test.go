@@ -125,3 +125,36 @@ func TestDoUnaryIncrementsRequestMetric(t *testing.T) {
 		t.Fatalf("expected request counter to increment to %d, got %d", before+1, got)
 	}
 }
+
+func TestDoUnaryTimesOutAuthReconnectPath(t *testing.T) {
+	cl := &client{
+		maxRequestDuration: 10 * time.Millisecond,
+		c: &fastrpc.Client{
+			Addr: "127.0.0.1:1",
+			NewResponse: func() fastrpc.ResponseReader {
+				return &contract.Response{}
+			},
+			Dial: func(addr string) (net.Conn, error) {
+				time.Sleep(100 * time.Millisecond)
+				return nil, errors.New("dial failed")
+			},
+		},
+	}
+
+	start := time.Now()
+	_, statusCode, err := cl.doUnary(&base.MockRequest{StatusCode: base.RPCServerResponseCode_OK}, nil, contract.Mock)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatalf("expected auth timeout error")
+	}
+	if !errors.Is(err, fastrpc.ErrTimeout) {
+		t.Fatalf("expected timeout error, got %v", err)
+	}
+	if statusCode != base.RPCServerResponseCode_NETWORK_ERROR {
+		t.Fatalf("expected NETWORK_ERROR status, got %s", statusCode)
+	}
+	if elapsed >= 80*time.Millisecond {
+		t.Fatalf("expected hard auth timeout before slow dial finishes, elapsed %s", elapsed)
+	}
+}

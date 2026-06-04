@@ -17,6 +17,8 @@ import (
 
 var ErrorUnauthorized = errors.New("unauthorized")
 
+var errAuthTimeout = fmt.Errorf("auth is failed: %w", fastrpc.ErrTimeout)
+
 type client struct {
 
 	// JwtToken is a byte slice used for storing JSON Web Token (JWT) data associated with the client.
@@ -41,8 +43,7 @@ type client struct {
 }
 
 func (c *client) ensureAuthForCurrentConn() error {
-	gen := c.connGen.Load()
-	if gen > 0 && gen == atomic.LoadUint64(&c.authedGen) {
+	if c.isAuthForCurrentConn() {
 		// already authenticated
 		return nil
 	}
@@ -50,7 +51,7 @@ func (c *client) ensureAuthForCurrentConn() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	gen = c.connGen.Load()
+	gen := c.connGen.Load()
 	if gen > 0 && gen == atomic.LoadUint64(&c.authedGen) {
 		return nil
 	}
@@ -102,6 +103,32 @@ func (c *client) ensureAuthForCurrentConn() error {
 	return nil
 }
 
+func (c *client) ensureAuthForCurrentConnDeadline() error {
+	if c.isAuthForCurrentConn() {
+		return nil
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- c.ensureAuthForCurrentConn()
+	}()
+
+	timer := time.NewTimer(c.maxRequestDuration)
+	defer timer.Stop()
+
+	select {
+	case err := <-errCh:
+		return err
+	case <-timer.C:
+		return errAuthTimeout
+	}
+}
+
+func (c *client) isAuthForCurrentConn() bool {
+	gen := c.connGen.Load()
+	return gen > 0 && gen == atomic.LoadUint64(&c.authedGen)
+}
+
 // GetServerID returns the identifier of the server currently associated with the client.
 func (c *client) GetServerID() uint16 {
 	return c.serverID
@@ -117,9 +144,31 @@ func (c *client) Reconnects() uint64 {
 	return c.connGen.Load()
 }
 
-// doUnary sends a unary gRPC request with a given proto message and request identifier, and returns the response or an error.
+// doUnary sends a unary RPC request with a given proto message and request identifier.
+//
+// Timing model:
+//   - If the underlying fastrpc connection is already open and authenticated for
+//     the current connection generation, the call goes straight to
+//     fastrpc.Client.DoDeadline with deadline = now + maxRequestDuration.
+//     fastrpc does not enforce this deadline with a per-request timer; it relies
+//     on an internal stale-request checker. Because of that, the observed call
+//     duration may exceed maxRequestDuration by up to the checker wake-up delay
+//     (currently up to about 1s in fastrpc).
+//   - If the connection is new or was reconnected, doUnary must authenticate the
+//     connection first. That path may include TCP dial and the fastrpc protocol
+//     handshake (fastrpc has its own 3s handshake deadline). To prevent callers
+//     from waiting for that slow path, doUnary wraps authentication in its own
+//     timer and returns after maxRequestDuration with NETWORK_ERROR/timeout if
+//     auth doesn't finish in time.
+//   - After successful authentication, the main RPC request is still handled by
+//     fastrpc.DoDeadline as described in the first case, so the strict SDK-level
+//     timeout currently applies to the auth/reconnect path only, not to the main
+//     request on an already authenticated connection.
 func (c *client) doUnary(req, resp proto.Message, reqn contract.RPCRegister) (proto.Message, base.RPCServerResponseCode, error) {
-	if err := c.ensureAuthForCurrentConn(); err != nil {
+	if err := c.ensureAuthForCurrentConnDeadline(); err != nil {
+		if errors.Is(err, fastrpc.ErrTimeout) {
+			return nil, base.RPCServerResponseCode_NETWORK_ERROR, err
+		}
 		return nil, base.RPCServerResponseCode_UNAUTHORIZED, err
 	}
 
