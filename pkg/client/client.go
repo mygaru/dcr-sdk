@@ -17,8 +17,6 @@ import (
 
 var ErrorUnauthorized = errors.New("unauthorized")
 
-var errAuthTimeout = fmt.Errorf("auth is failed: %w", fastrpc.ErrTimeout)
-
 type client struct {
 
 	// JwtToken is a byte slice used for storing JSON Web Token (JWT) data associated with the client.
@@ -51,6 +49,10 @@ func (c *client) ensureAuthForCurrentConn() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	return c.ensureAuthForCurrentConnLocked()
+}
+
+func (c *client) ensureAuthForCurrentConnLocked() error {
 	gen := c.connGen.Load()
 	if gen > 0 && gen == atomic.LoadUint64(&c.authedGen) {
 		return nil
@@ -108,9 +110,14 @@ func (c *client) ensureAuthForCurrentConnDeadline() error {
 		return nil
 	}
 
+	if !c.mu.TryLock() {
+		return ErrorUnauthorized
+	}
+
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- c.ensureAuthForCurrentConn()
+		defer c.mu.Unlock()
+		errCh <- c.ensureAuthForCurrentConnLocked()
 	}()
 
 	timer := time.NewTimer(c.maxRequestDuration)
@@ -120,7 +127,7 @@ func (c *client) ensureAuthForCurrentConnDeadline() error {
 	case err := <-errCh:
 		return err
 	case <-timer.C:
-		return errAuthTimeout
+		return fastrpc.ErrTimeout
 	}
 }
 
@@ -160,6 +167,9 @@ func (c *client) Reconnects() uint64 {
 //     from waiting for that slow path, doUnary wraps authentication in its own
 //     timer and returns after maxRequestDuration with NETWORK_ERROR/timeout if
 //     auth doesn't finish in time.
+//   - Only one goroutine is allowed to run the auth/reconnect path for a client.
+//     Concurrent callers that arrive while auth is already in progress fail fast
+//     with NETWORK_ERROR/timeout instead of each waiting for maxRequestDuration.
 //   - After successful authentication, the main RPC request is still handled by
 //     fastrpc.DoDeadline as described in the first case, so the strict SDK-level
 //     timeout currently applies to the auth/reconnect path only, not to the main

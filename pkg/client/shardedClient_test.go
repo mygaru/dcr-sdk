@@ -158,3 +158,35 @@ func TestDoUnaryTimesOutAuthReconnectPath(t *testing.T) {
 		t.Fatalf("expected hard auth timeout before slow dial finishes, elapsed %s", elapsed)
 	}
 }
+
+func TestDoUnaryFailsFastWhenAuthAlreadyInProgress(t *testing.T) {
+	cl := &client{
+		maxRequestDuration: 25 * time.Millisecond,
+		c: &fastrpc.Client{
+			Addr: "127.0.0.1:1",
+			NewResponse: func() fastrpc.ResponseReader {
+				return &contract.Response{}
+			},
+		},
+	}
+
+	cl.mu.Lock()
+	defer cl.mu.Unlock()
+
+	start := time.Now()
+	_, statusCode, err := cl.doUnary(&base.MockRequest{StatusCode: base.RPCServerResponseCode_OK}, nil, contract.Mock)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatalf("expected auth in progress timeout error")
+	}
+	if !errors.Is(err, fastrpc.ErrTimeout) {
+		t.Fatalf("expected timeout error, got %v", err)
+	}
+	if statusCode != base.RPCServerResponseCode_NETWORK_ERROR {
+		t.Fatalf("expected NETWORK_ERROR status, got %s", statusCode)
+	}
+	if elapsed >= 10*time.Millisecond {
+		t.Fatalf("expected auth-in-progress path to fail fast, elapsed %s", elapsed)
+	}
+}
