@@ -75,6 +75,9 @@ func TestNewClientDoesNotMutateConfiguration(t *testing.T) {
 	if client.Configuration.MaxDialDuration != defaultMaxRequestDuration {
 		t.Fatalf("expected default max dial duration, got %s", client.Configuration.MaxDialDuration)
 	}
+	if client.Configuration.MaximumSimultaneousConnections != defaultMaximumSimultaneousConnections {
+		t.Fatalf("expected default maximum simultaneous connections, got %d", client.Configuration.MaximumSimultaneousConnections)
+	}
 	if client.Configuration.DNSRefreshInterval != defaultDNSRefreshInterval {
 		t.Fatalf("expected default DNS refresh interval, got %s", client.Configuration.DNSRefreshInterval)
 	}

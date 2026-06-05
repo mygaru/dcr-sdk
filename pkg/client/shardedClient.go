@@ -4,7 +4,6 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
-	"runtime"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -41,7 +40,7 @@ type Configuration struct {
 	MaxPendingRequests int
 
 	// MaximumSimultaneousConnections specifies the maximum number of connections that can be active simultaneously for the server.
-	// Bu default MaximumSimultaneousConnections is equal to the number of threads
+	// By default MaximumSimultaneousConnections is tuned for low-latency high-throughput traffic.
 	MaximumSimultaneousConnections int
 
 	// ReadBufferSize is the size for read buffer.
@@ -184,9 +183,10 @@ func (sc *ShardedClient) Reconnects() int {
 
 // NewClient initializes and returns a new instance of ShardedClient
 const (
-	defaultMaxRequestDuration = time.Second
-	defaultMaxPendingRequests = 4_000
-	defaultBufferSize         = 4 * 1024
+	defaultMaxRequestDuration             = time.Second
+	defaultMaximumSimultaneousConnections = 128
+	defaultMaxPendingRequests             = 8
+	defaultBufferSize                     = 4 * 1024
 )
 
 // NewClient initializes and returns a new instance of ShardedClient.
@@ -253,7 +253,7 @@ func normalizeConfiguration(cfg *Configuration) *Configuration {
 	}
 	normalized := *cfg
 	if normalized.MaximumSimultaneousConnections <= 0 {
-		normalized.MaximumSimultaneousConnections = runtime.GOMAXPROCS(-1)
+		normalized.MaximumSimultaneousConnections = defaultMaximumSimultaneousConnections
 	}
 	normalized.Addrs = normalizeAddrs(normalized.Addrs)
 	if len(normalized.Addrs) == 0 {

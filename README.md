@@ -70,10 +70,12 @@ type Configuration struct {
 	// If negative, periodic refresh is disabled.
 	DNSRefreshInterval time.Duration
 
-    //Maximum number of in-flight requests per underlying transport client.
+    // Maximum number of in-flight requests per underlying transport client.
+    // By default: 8.
     MaxPendingRequests int
 
-    // Reserved for connection concurrency tuning.
+    // Number of underlying transport connections per configured shard address.
+    // By default: 128.
     MaximumSimultaneousConnections int
 
 	// Transport buffer sizes in bytes.
