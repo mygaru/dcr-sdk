@@ -39,8 +39,6 @@ message TargetRequest {
     uint64 PublisherID = 3;
     // SSP Source ID
     uint64 Aid = 4;
-
-
   }
 }
 
