@@ -31,8 +31,9 @@ type TargetRequest struct {
 	Match []*Match_Rule `protobuf:"bytes,3,rep,name=match" json:"match,omitempty"`
 	// By default, Cloud returns an error if at least one segment check fails.
 	// This behavior can be overridden by setting individual_errors = true.
-	IndividualErrors bool     `protobuf:"varint,4,opt,name=individual_errors,json=individualErrors" json:"individual_errors,omitempty"`
-	Context          *Context `protobuf:"bytes,5,opt,name=Context" json:"Context,omitempty"`
+	IndividualErrors bool                     `protobuf:"varint,4,opt,name=individual_errors,json=individualErrors" json:"individual_errors,omitempty"`
+	Context          *Context                 `protobuf:"bytes,5,opt,name=context" json:"context,omitempty"`
+	Inventory        *TargetRequest_Inventory `protobuf:"bytes,6,opt,name=inventory" json:"inventory,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -98,6 +99,13 @@ func (x *TargetRequest) GetIndividualErrors() bool {
 func (x *TargetRequest) GetContext() *Context {
 	if x != nil {
 		return x.Context
+	}
+	return nil
+}
+
+func (x *TargetRequest) GetInventory() *TargetRequest_Inventory {
+	if x != nil {
+		return x.Inventory
 	}
 	return nil
 }
@@ -173,17 +181,95 @@ func (x *TargetResponse) GetMatch() []Match_ResponseStatus {
 	return nil
 }
 
+type TargetRequest_Inventory struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// DSP Root Inventory ID
+	Id uint64 `protobuf:"varint,1,opt,name=Id" json:"Id,omitempty"`
+	// DSP Account ID
+	AccountID uint64 `protobuf:"varint,2,opt,name=AccountID" json:"AccountID,omitempty"`
+	// SSP Publisher ID
+	PublisherID uint64 `protobuf:"varint,3,opt,name=PublisherID" json:"PublisherID,omitempty"`
+	// SSP Source ID
+	Aid           uint64 `protobuf:"varint,4,opt,name=Aid" json:"Aid,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TargetRequest_Inventory) Reset() {
+	*x = TargetRequest_Inventory{}
+	mi := &file_base_v1_rpc_target_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TargetRequest_Inventory) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TargetRequest_Inventory) ProtoMessage() {}
+
+func (x *TargetRequest_Inventory) ProtoReflect() protoreflect.Message {
+	mi := &file_base_v1_rpc_target_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TargetRequest_Inventory.ProtoReflect.Descriptor instead.
+func (*TargetRequest_Inventory) Descriptor() ([]byte, []int) {
+	return file_base_v1_rpc_target_proto_rawDescGZIP(), []int{0, 0}
+}
+
+func (x *TargetRequest_Inventory) GetId() uint64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *TargetRequest_Inventory) GetAccountID() uint64 {
+	if x != nil {
+		return x.AccountID
+	}
+	return 0
+}
+
+func (x *TargetRequest_Inventory) GetPublisherID() uint64 {
+	if x != nil {
+		return x.PublisherID
+	}
+	return 0
+}
+
+func (x *TargetRequest_Inventory) GetAid() uint64 {
+	if x != nil {
+		return x.Aid
+	}
+	return 0
+}
+
 var File_base_v1_rpc_target_proto protoreflect.FileDescriptor
 
 const file_base_v1_rpc_target_proto_rawDesc = "" +
 	"\n" +
-	"\x18base/v1/rpc.target.proto\x12\x06target\x1a\x17base/v1/frequency.proto\x1a\x13base/v1/match.proto\x1a\x12base/v1/user.proto\x1a\x14base/v1/common.proto\"\xe6\x01\n" +
+	"\x18base/v1/rpc.target.proto\x12\x06target\x1a\x17base/v1/frequency.proto\x1a\x13base/v1/match.proto\x1a\x12base/v1/user.proto\x1a\x14base/v1/common.proto\"\x94\x03\n" +
 	"\rTargetRequest\x12\x1d\n" +
 	"\x04uids\x18\x01 \x03(\v2\t.user.UIDR\x04uids\x127\n" +
 	"\tfrequency\x18\x02 \x03(\v2\x19.frequency.Frequency.RuleR\tfrequency\x12'\n" +
 	"\x05match\x18\x03 \x03(\v2\x11.match.Match.RuleR\x05match\x12+\n" +
 	"\x11individual_errors\x18\x04 \x01(\bR\x10individualErrors\x12'\n" +
-	"\aContext\x18\x05 \x01(\v2\r.user.ContextR\aContext\"\xe7\x01\n" +
+	"\acontext\x18\x05 \x01(\v2\r.user.ContextR\acontext\x12=\n" +
+	"\tinventory\x18\x06 \x01(\v2\x1f.target.TargetRequest.InventoryR\tinventory\x1am\n" +
+	"\tInventory\x12\x0e\n" +
+	"\x02Id\x18\x01 \x01(\x04R\x02Id\x12\x1c\n" +
+	"\tAccountID\x18\x02 \x01(\x04R\tAccountID\x12 \n" +
+	"\vPublisherID\x18\x03 \x01(\x04R\vPublisherID\x12\x10\n" +
+	"\x03Aid\x18\x04 \x01(\x04R\x03Aid\"\xe7\x01\n" +
 	"\x0eTargetResponse\x12\x1f\n" +
 	"\vtracking_id\x18\x01 \x01(\fR\n" +
 	"trackingId\x12>\n" +
@@ -204,31 +290,33 @@ func file_base_v1_rpc_target_proto_rawDescGZIP() []byte {
 	return file_base_v1_rpc_target_proto_rawDescData
 }
 
-var file_base_v1_rpc_target_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_base_v1_rpc_target_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_base_v1_rpc_target_proto_goTypes = []any{
-	(*TargetRequest)(nil),         // 0: target.TargetRequest
-	(*TargetResponse)(nil),        // 1: target.TargetResponse
-	(*UID)(nil),                   // 2: user.UID
-	(*Frequency_Rule)(nil),        // 3: frequency.Frequency.Rule
-	(*Match_Rule)(nil),            // 4: match.Match.Rule
-	(*Context)(nil),               // 5: user.Context
-	(RPCServerResponseCode)(0),    // 6: common.RPCServerResponseCode
-	(Frequency_ResponseStatus)(0), // 7: frequency.Frequency.ResponseStatus
-	(Match_ResponseStatus)(0),     // 8: match.Match.ResponseStatus
+	(*TargetRequest)(nil),           // 0: target.TargetRequest
+	(*TargetResponse)(nil),          // 1: target.TargetResponse
+	(*TargetRequest_Inventory)(nil), // 2: target.TargetRequest.Inventory
+	(*UID)(nil),                     // 3: user.UID
+	(*Frequency_Rule)(nil),          // 4: frequency.Frequency.Rule
+	(*Match_Rule)(nil),              // 5: match.Match.Rule
+	(*Context)(nil),                 // 6: user.Context
+	(RPCServerResponseCode)(0),      // 7: common.RPCServerResponseCode
+	(Frequency_ResponseStatus)(0),   // 8: frequency.Frequency.ResponseStatus
+	(Match_ResponseStatus)(0),       // 9: match.Match.ResponseStatus
 }
 var file_base_v1_rpc_target_proto_depIdxs = []int32{
-	2, // 0: target.TargetRequest.uids:type_name -> user.UID
-	3, // 1: target.TargetRequest.frequency:type_name -> frequency.Frequency.Rule
-	4, // 2: target.TargetRequest.match:type_name -> match.Match.Rule
-	5, // 3: target.TargetRequest.Context:type_name -> user.Context
-	6, // 4: target.TargetResponse.status_code:type_name -> common.RPCServerResponseCode
-	7, // 5: target.TargetResponse.frequency:type_name -> frequency.Frequency.ResponseStatus
-	8, // 6: target.TargetResponse.match:type_name -> match.Match.ResponseStatus
-	7, // [7:7] is the sub-list for method output_type
-	7, // [7:7] is the sub-list for method input_type
-	7, // [7:7] is the sub-list for extension type_name
-	7, // [7:7] is the sub-list for extension extendee
-	0, // [0:7] is the sub-list for field type_name
+	3, // 0: target.TargetRequest.uids:type_name -> user.UID
+	4, // 1: target.TargetRequest.frequency:type_name -> frequency.Frequency.Rule
+	5, // 2: target.TargetRequest.match:type_name -> match.Match.Rule
+	6, // 3: target.TargetRequest.context:type_name -> user.Context
+	2, // 4: target.TargetRequest.inventory:type_name -> target.TargetRequest.Inventory
+	7, // 5: target.TargetResponse.status_code:type_name -> common.RPCServerResponseCode
+	8, // 6: target.TargetResponse.frequency:type_name -> frequency.Frequency.ResponseStatus
+	9, // 7: target.TargetResponse.match:type_name -> match.Match.ResponseStatus
+	8, // [8:8] is the sub-list for method output_type
+	8, // [8:8] is the sub-list for method input_type
+	8, // [8:8] is the sub-list for extension type_name
+	8, // [8:8] is the sub-list for extension extendee
+	0, // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_base_v1_rpc_target_proto_init() }
@@ -246,7 +334,7 @@ func file_base_v1_rpc_target_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_base_v1_rpc_target_proto_rawDesc), len(file_base_v1_rpc_target_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

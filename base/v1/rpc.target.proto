@@ -26,7 +26,22 @@ message TargetRequest {
   // This behavior can be overridden by setting individual_errors = true.
   bool individual_errors = 4;
 
-  user.Context Context = 5;
+  user.Context context = 5;
+
+  Inventory inventory = 6;
+
+  message Inventory {
+    // DSP Root Inventory ID
+    uint64 Id = 1;
+    // DSP Account ID
+    uint64 AccountID = 2;
+    // SSP Publisher ID
+    uint64 PublisherID = 3;
+    // SSP Source ID
+    uint64 Aid = 4;
+
+
+  }
 }
 
 message TargetResponse {
