@@ -84,6 +84,65 @@ type Configuration struct {
 }
 ```
 
+## Throughput Sizing
+
+`MaximumSimultaneousConnections` defines how many underlying transport connections are opened for each configured shard address.
+The default value is `128`.
+
+Use this conservative formula to estimate client-side throughput:
+
+```text
+requests_per_second = shard_count * MaximumSimultaneousConnections * (1000 / average_rpc_latency_ms)
+```
+
+With the default `MaximumSimultaneousConnections = 128`, one shard address, and an average RPC latency of `1 ms`:
+
+```text
+requests_per_second = 1 * 128 * (1000 / 1)
+requests_per_second = 128,000 RPC/s
+```
+
+For multiple shard addresses, multiply by the number of addresses in `Configuration.Addrs`:
+
+```text
+requests_per_second = shard_count * 128,000
+```
+
+For example, with `3` shard addresses and `1 ms` average latency:
+
+```text
+requests_per_second = 3 * 128 * (1000 / 1)
+requests_per_second = 384,000 RPC/s
+```
+
+To choose `MaximumSimultaneousConnections` for a target load:
+
+```text
+MaximumSimultaneousConnections = ceil(target_requests_per_second * average_rpc_latency_ms / (1000 * shard_count))
+```
+
+Example: to handle `50,000 RPC/s` with `2 ms` average latency and one shard address:
+
+```text
+MaximumSimultaneousConnections = ceil(50,000 * 2 / (1000 * 1))
+MaximumSimultaneousConnections = 100
+```
+
+`MaxPendingRequests` is the per-connection limit for in-flight requests. The default is `8`.
+If the application sends enough concurrent requests and the server supports pipelining efficiently, the theoretical transport ceiling is:
+
+```text
+requests_per_second = shard_count * MaximumSimultaneousConnections * MaxPendingRequests * (1000 / average_rpc_latency_ms)
+```
+
+With default values and `1 ms` average latency:
+
+```text
+requests_per_second = 1 * 128 * 8 * (1000 / 1)
+requests_per_second = 1,024,000 RPC/s
+```
+
+Treat this as an upper bound. Real throughput also depends on server capacity, network latency distribution, payload size, CPU, TLS overhead, and how much concurrency the application actually produces.
 
 ## Main RPC Methods
 
