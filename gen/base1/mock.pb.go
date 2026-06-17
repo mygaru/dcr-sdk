@@ -21,7 +21,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// For debug usage via dcrMockServer
+// For debug usage with a non-production RPC server.
 type MockRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	StatusCode    RPCServerResponseCode  `protobuf:"varint,1,opt,name=statusCode,enum=common.RPCServerResponseCode" json:"statusCode,omitempty"`

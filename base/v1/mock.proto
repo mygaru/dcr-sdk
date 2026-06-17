@@ -9,7 +9,7 @@ option features.field_presence = IMPLICIT;
 
 package mock;
 
-// For debug usage via dcrMockServer
+// For debug usage with a non-production RPC server.
 message MockRequest {
     common.RPCServerResponseCode statusCode = 1;
     bytes tracking_id = 2;

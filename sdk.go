@@ -16,8 +16,7 @@ func NewWithTLS(cfg *client.Configuration, tls *tls.Config) *client.ShardedClien
 	return client.NewClient(cfg, tls)
 }
 
-// New creates a test RPC Client that can communicate with a test RPC server
-// For example dcrMockServer
+// New creates a test RPC client that can communicate with a non-TLS RPC server.
 // The New method is used in tests and debug cases, for a real connection to the DCR cloud use NewWithTLS
 func New(cfg *client.Configuration) *client.ShardedClient {
 	if cfg == nil {
