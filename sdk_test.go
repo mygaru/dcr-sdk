@@ -1,9 +1,16 @@
 package dcr_sdk
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math/big"
 	"net"
 	"sync/atomic"
 	"testing"
@@ -14,6 +21,7 @@ import (
 	base "github.com/mygaru/dcr-sdk/gen/base1"
 	"github.com/mygaru/dcr-sdk/internal/sdkutil"
 	"github.com/mygaru/dcr-sdk/pkg/contract"
+	"gitlab.adtelligent.com/awesome/mtls"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/mygaru/dcr-sdk/pkg/client"
@@ -133,6 +141,93 @@ func TestAuthFailureReturnsUnauthorized(t *testing.T) {
 	}
 }
 
+func TestNewWithMTLSUsesClientCertificate(t *testing.T) {
+	ca, err := mtls.GenerateCA(mtls.GenerateCAConfig{CN: "dcr-sdk-test-client-ca"})
+	if err != nil {
+		t.Fatalf("generate client CA: %v", err)
+	}
+	clientCert, err := mtls.Generate(mtls.GenerateConfig{
+		CN:   "dcr-sdk-client",
+		UUID: uuid.NewString(),
+		CA:   ca,
+	})
+	if err != nil {
+		t.Fatalf("generate client certificate: %v", err)
+	}
+
+	serverCA, err := mtls.GenerateCA(mtls.GenerateCAConfig{CN: "dcr-sdk-test-server-ca"})
+	if err != nil {
+		t.Fatalf("generate server CA: %v", err)
+	}
+	serverTLSCert, err := newTestServerTLSCertificate(serverCA)
+	if err != nil {
+		t.Fatalf("generate server TLS certificate: %v", err)
+	}
+
+	clientRoots := x509.NewCertPool()
+	clientRoots.AddCert(ca.Cert)
+	serverRoots := x509.NewCertPool()
+	serverRoots.AddCert(serverCA.Cert)
+
+	server := newTestRPCServer(t, testRPCServerConfig{
+		tlsConfig: &tls.Config{
+			Certificates: []tls.Certificate{serverTLSCert},
+			ClientAuth:   tls.RequireAndVerifyClientCert,
+			ClientCAs:    clientRoots,
+			MinVersion:   tls.VersionTLS12,
+		},
+	})
+
+	rpc, err := NewWithMTLS(&client.Configuration{
+		Addrs:                          server.addr,
+		JwtToken:                       []byte("some token here ..."),
+		MaximumSimultaneousConnections: 1,
+	}, MTLSConfig{
+		CertPEM:         clientCert.CertPEM,
+		KeyPEM:          clientCert.KeyPEM,
+		ServerRootCAs:   serverRoots,
+		ServerName:      "127.0.0.1",
+		ClientCertRoots: clientRoots,
+	})
+	if err != nil {
+		t.Fatalf("create mTLS client: %v", err)
+	}
+
+	_, sc, err := rpc.Mock(&base.MockRequest{StatusCode: base.RPCServerResponseCode_OK}, nil)
+	if err != nil {
+		t.Fatalf("expected nil, got err %v", err)
+	}
+	if sc != base.RPCServerResponseCode_OK {
+		t.Fatalf("expected status code to be %d, got %d", base.RPCServerResponseCode_OK, sc)
+	}
+}
+
+func TestNewWithMTLSRejectsInvalidClientCertificate(t *testing.T) {
+	cert, err := mtls.GenerateSelfSigned(mtls.GenerateConfig{
+		CN:   "dcr-sdk-client",
+		UUID: uuid.NewString(),
+	})
+	if err != nil {
+		t.Fatalf("generate client certificate: %v", err)
+	}
+
+	wrongRoots := x509.NewCertPool()
+	ca, err := mtls.GenerateCA(mtls.GenerateCAConfig{CN: "untrusted-ca"})
+	if err != nil {
+		t.Fatalf("generate CA: %v", err)
+	}
+	wrongRoots.AddCert(ca.Cert)
+
+	_, err = NewWithMTLS(&client.Configuration{}, MTLSConfig{
+		CertPEM:         cert.CertPEM,
+		KeyPEM:          cert.KeyPEM,
+		ClientCertRoots: wrongRoots,
+	})
+	if err == nil {
+		t.Fatalf("expected invalid client certificate error")
+	}
+}
+
 func TestTargetReturnsServerStatusError(t *testing.T) {
 	server := newTestRPCServer(t, testRPCServerConfig{
 		targetStatus: base.RPCServerResponseCode_SERVICE_UNAVAILABLE,
@@ -228,6 +323,7 @@ type testRPCServerConfig struct {
 	authStatusCode base.RPCServerResponseCode
 	serverID       uint16
 	targetStatus   base.RPCServerResponseCode
+	tlsConfig      *tls.Config
 }
 
 type testRPCServer struct {
@@ -277,6 +373,7 @@ func newTestRPCServer(t *testing.T, cfg testRPCServerConfig) *testRPCServer {
 		WriteTimeout:     10 * time.Second,
 		CompressType:     fastrpc.CompressSnappy,
 		PipelineRequests: true,
+		TLSConfig:        cfg.tlsConfig,
 	}
 
 	done := make(chan error, 1)
@@ -432,4 +529,44 @@ func (ln *testRPCListener) Accept() (net.Conn, error) {
 		return nil, err
 	}
 	return &testRPCConn{Conn: conn}, nil
+}
+
+func newTestServerTLSCertificate(ca *mtls.Certificate) (tls.Certificate, error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("generate server key: %w", err)
+	}
+
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("generate server serial: %w", err)
+	}
+
+	tmpl := &x509.Certificate{
+		SerialNumber: serial,
+		Subject: pkix.Name{
+			CommonName: "127.0.0.1",
+		},
+		NotBefore:             time.Now().Add(-time.Minute),
+		NotAfter:              time.Now().Add(time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		IPAddresses:           []net.IP{net.ParseIP("127.0.0.1")},
+	}
+
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca.Cert, &key.PublicKey, ca.Key)
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("create server certificate: %w", err)
+	}
+	leaf, err := x509.ParseCertificate(der)
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("parse server certificate: %w", err)
+	}
+
+	return tls.Certificate{
+		Certificate: [][]byte{der},
+		PrivateKey:  key,
+		Leaf:        leaf,
+	}, nil
 }

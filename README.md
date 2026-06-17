@@ -43,6 +43,7 @@ The root package exposes two constructors:
 
 - `New(cfg)` — creates a client for tests, debug flows, or non-TLS environments
 - `NewWithTLS(cfg, tlsConfig)` — creates a client for production mTLS communication
+- `NewWithMTLS(cfg, mtlsConfig)` — creates a client from PEM-encoded mTLS certificate material
 
 ## Configuration
 
@@ -143,6 +144,73 @@ requests_per_second = 1,024,000 RPC/s
 ```
 
 Treat this as an upper bound. Real throughput also depends on server capacity, network latency distribution, payload size, CPU, TLS overhead, and how much concurrency the application actually produces.
+
+## mTLS Configuration
+
+Production clients should use mTLS. The SDK provides `NewWithMTLS`, which validates the client certificate with `gitlab.adtelligent.com/awesome/mtls`, builds a `tls.Config`, and then creates the RPC client through `NewWithTLS`.
+
+Example:
+
+```go
+package main
+
+import (
+	"crypto/x509"
+	"os"
+	"time"
+
+	dcr "github.com/mygaru/dcr-sdk"
+	"github.com/mygaru/dcr-sdk/pkg/client"
+)
+
+func main() {
+	clientCertPEM, err := os.ReadFile("./certs/client.pem")
+	if err != nil {
+		panic(err)
+	}
+	clientKeyPEM, err := os.ReadFile("./certs/client-key.pem")
+	if err != nil {
+		panic(err)
+	}
+	serverCAPEM, err := os.ReadFile("./certs/server-ca.pem")
+	if err != nil {
+		panic(err)
+	}
+	clientCAPEM, err := os.ReadFile("./certs/client-ca.pem")
+	if err != nil {
+		panic(err)
+	}
+
+	serverRoots := x509.NewCertPool()
+	if !serverRoots.AppendCertsFromPEM(serverCAPEM) {
+		panic("cannot parse server CA")
+	}
+	clientRoots := x509.NewCertPool()
+	if !clientRoots.AppendCertsFromPEM(clientCAPEM) {
+		panic("cannot parse client CA")
+	}
+
+	rpc, err := dcr.NewWithMTLS(&client.Configuration{
+		Addrs:                          "cloud.mygaru.com:7937",
+		JwtToken:                       []byte("JWT_TOKEN"),
+		MaxRequestDuration:             time.Second,
+		MaximumSimultaneousConnections: 128,
+	}, dcr.MTLSConfig{
+		CertPEM:         clientCertPEM,
+		KeyPEM:          clientKeyPEM,
+		ServerRootCAs:   serverRoots,
+		ServerName:      "cloud.mygaru.com",
+		ClientCertRoots: clientRoots,
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	_ = rpc
+}
+```
+
+Use `ServerRootCAs` to verify the DCR RPC server certificate. Use `ClientCertRoots` to validate the client certificate before the SDK opens the connection. If `ClientCertRoots` is nil, `mtls.CheckTLS` falls back to the system root CA pool.
 
 ## Main RPC Methods
 
