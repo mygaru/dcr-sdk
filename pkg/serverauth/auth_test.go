@@ -57,13 +57,13 @@ func TestServerAcceptsPlaintextAuthAndMTLSOnSameListener(t *testing.T) {
 			ctx := ctxv.(*tlv.RequestCtx)
 			switch {
 			case bytes.Equal(ctx.Request.Name(), []byte("auth")):
-				if err := MustSetUUID(ctx.Conn(), legacyUUID); err != nil {
+				if err := SetUUID(ctx.Conn(), legacyUUID); err != nil {
 					ctx.Response.Append([]byte(err.Error()))
 					return ctx
 				}
 				ctx.Response.Append([]byte("ok"))
 			case bytes.Equal(ctx.Request.Name(), []byte("who")):
-				uid, ok := UUIDFromConn(ctx.Conn())
+				uid, ok := GetUUID(ctx.Conn())
 				if !ok {
 					ctx.Response.Append([]byte("unauthorized"))
 					return ctx

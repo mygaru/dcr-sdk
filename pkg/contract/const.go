@@ -6,10 +6,9 @@ const (
 	Unknown RPCRegister = iota
 	Target  RPCRegister = 1
 	Report  RPCRegister = 2
-	Mock    RPCRegister = 3
 	Auth    RPCRegister = 4
 
-	MaxRequestIdentifier = Mock
+	MaxRequestIdentifier = Report
 )
 
 func (r RPCRegister) String() string {
@@ -18,8 +17,6 @@ func (r RPCRegister) String() string {
 		return "target"
 	case Report:
 		return "report"
-	case Mock:
-		return "mock"
 	case Auth:
 		return "auth"
 	default:

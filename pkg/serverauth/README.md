@@ -58,7 +58,7 @@ func Auth(ctx *contract.RequestCtx) {
 		return
 	}
 
-	if err := serverauth.MustSetUUID(ctx.Conn(), payer.ID); err != nil {
+	if err := serverauth.SetUUID(ctx.Conn(), payer.ID); err != nil {
 		handlers.WriteError(ctx, base.RPCServerResponseCode_TECH_ERROR, err)
 		return
 	}
@@ -73,7 +73,7 @@ Every handler can read the authenticated UUID the same way, regardless of whethe
 
 ```go
 func Target(ctx *contract.RequestCtx) {
-	payerID, ok := serverauth.UUIDFromConn(ctx.Conn())
+	payerID, ok := serverauth.GetUUID(ctx.Conn())
 	if !ok {
 		handlers.WriteError(ctx, base.RPCServerResponseCode_UNAUTHORIZED, fmt.Errorf("unauthorized"))
 		return

@@ -22,6 +22,9 @@ type client struct {
 	// JwtToken is a byte slice used for storing JSON Web Token (JWT) data associated with the client.
 	JwtToken []byte
 
+	// disableAuth skips the legacy contract.Auth request for mTLS-authenticated connections.
+	disableAuth bool
+
 	// maxRequestDuration specifies the maximum duration allowed for a single request to complete before timing out.
 	maxRequestDuration time.Duration
 
@@ -168,11 +171,13 @@ func (c *client) Reconnects() uint64 {
 //     timeout currently applies to the auth/reconnect path only, not to the main
 //     request on an already authenticated connection.
 func (c *client) doUnary(req, resp proto.Message, reqn contract.RPCRegister) (proto.Message, base.RPCServerResponseCode, error) {
-	if err := c.ensureAuthForCurrentConnDeadline(); err != nil {
-		if errors.Is(err, fastrpc.ErrTimeout) {
-			return nil, base.RPCServerResponseCode_NETWORK_ERROR, err
+	if !c.disableAuth {
+		if err := c.ensureAuthForCurrentConnDeadline(); err != nil {
+			if errors.Is(err, fastrpc.ErrTimeout) {
+				return nil, base.RPCServerResponseCode_NETWORK_ERROR, err
+			}
+			return nil, base.RPCServerResponseCode_UNAUTHORIZED, err
 		}
-		return nil, base.RPCServerResponseCode_UNAUTHORIZED, err
 	}
 
 	raw, err := proto.Marshal(req)

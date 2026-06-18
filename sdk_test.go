@@ -21,6 +21,7 @@ import (
 	base "github.com/mygaru/dcr-sdk/gen/base1"
 	"github.com/mygaru/dcr-sdk/internal/sdkutil"
 	"github.com/mygaru/dcr-sdk/pkg/contract"
+	"github.com/mygaru/dcr-sdk/pkg/serverauth"
 	"gitlab.adtelligent.com/awesome/mtls"
 	"google.golang.org/protobuf/proto"
 
@@ -39,7 +40,7 @@ func getTestClient(t *testing.T) *client.ShardedClient {
 func newTestClient(addr string, maximumSimultaneousConnections int) *client.ShardedClient {
 	return New(&client.Configuration{
 		Addrs:                          addr,
-		JwtToken:                       []byte("some token here ..."),
+		JwtToken:                       []byte(uuid.NewString()),
 		MaximumSimultaneousConnections: maximumSimultaneousConnections,
 	})
 }
@@ -100,7 +101,7 @@ func TestTargetReturnsTrackingIDAndReportRoutesByIt(t *testing.T) {
 func TestAuth(t *testing.T) {
 	rpc := getTestClient(t)
 	for i := 0; i < 100; i++ {
-		_, sc, err := rpc.Mock(&base.MockRequest{StatusCode: base.RPCServerResponseCode_OK}, nil)
+		_, sc, err := rpc.Target(testTargetRequest())
 		if nil != err {
 			t.Fatalf("expected nil, got err %v", err)
 		}
@@ -115,24 +116,13 @@ func TestAuth(t *testing.T) {
 	}
 }
 
-func TestFailed(t *testing.T) {
-	_, sc, err := getTestClient(t).Mock(&base.MockRequest{StatusCode: base.RPCServerResponseCode_UNAUTHORIZED}, nil)
-	if nil == err {
-		t.Fatalf("expected error, got none")
-	}
-
-	if sc != base.RPCServerResponseCode_UNAUTHORIZED {
-		t.Fatalf("expected status code to be %d, got %d", base.RPCServerResponseCode_UNAUTHORIZED, sc)
-	}
-}
-
 func TestAuthFailureReturnsUnauthorized(t *testing.T) {
 	server := newTestRPCServer(t, testRPCServerConfig{
 		authStatusCode: base.RPCServerResponseCode_UNAUTHORIZED,
 	})
 	rpc := newTestClient(server.addr, 1)
 
-	_, sc, err := rpc.Mock(&base.MockRequest{StatusCode: base.RPCServerResponseCode_OK}, nil)
+	_, sc, err := rpc.Target(testTargetRequest())
 	if !errors.Is(err, client.ErrorUnauthorized) {
 		t.Fatalf("expected unauthorized error, got %v", err)
 	}
@@ -170,17 +160,14 @@ func TestNewWithMTLSUsesClientCertificate(t *testing.T) {
 	serverRoots.AddCert(serverCA.Cert)
 
 	server := newTestRPCServer(t, testRPCServerConfig{
-		tlsConfig: &tls.Config{
+		tlsConfig: serverauth.NewTLSConfig(&tls.Config{
 			Certificates: []tls.Certificate{serverTLSCert},
-			ClientAuth:   tls.RequireAndVerifyClientCert,
-			ClientCAs:    clientRoots,
 			MinVersion:   tls.VersionTLS12,
-		},
+		}, serverauth.MTLSConfig{Roots: clientRoots}),
 	})
 
 	rpc, err := NewWithMTLS(&client.Configuration{
 		Addrs:                          server.addr,
-		JwtToken:                       []byte("some token here ..."),
 		MaximumSimultaneousConnections: 1,
 	}, MTLSConfig{
 		CertPEM:         clientCert.CertPEM,
@@ -193,7 +180,7 @@ func TestNewWithMTLSUsesClientCertificate(t *testing.T) {
 		t.Fatalf("create mTLS client: %v", err)
 	}
 
-	_, sc, err := rpc.Mock(&base.MockRequest{StatusCode: base.RPCServerResponseCode_OK}, nil)
+	_, sc, err := rpc.Target(testTargetRequest())
 	if err != nil {
 		t.Fatalf("expected nil, got err %v", err)
 	}
@@ -319,6 +306,17 @@ func TestNew(t *testing.T) {
 	}
 }
 
+func testTargetRequest() *base.TargetRequest {
+	return &base.TargetRequest{
+		Uids: []*base.UID{
+			{Id: []byte(uuid.New().String()), Type: base.UID_DEVICE_ID},
+		},
+		Match: []*base.Match_Rule{
+			{TrafficType: base.TrafficType_TRAFFIC_TYPE_VIDEO, SegmentIds: []uint32{1, 2, 3}},
+		},
+	}
+}
+
 type testRPCServerConfig struct {
 	authStatusCode base.RPCServerResponseCode
 	serverID       uint16
@@ -353,6 +351,7 @@ func newTestRPCServer(t *testing.T, cfg testRPCServerConfig) *testRPCServer {
 	if err != nil {
 		t.Fatalf("cannot listen on test tcp addr: %v", err)
 	}
+	ln = serverauth.NewListener(ln)
 
 	testServer := &testRPCServer{
 		addr:           ln.Addr().String(),
@@ -378,7 +377,7 @@ func newTestRPCServer(t *testing.T, cfg testRPCServerConfig) *testRPCServer {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- server.Serve(&testRPCListener{Listener: ln})
+		done <- server.Serve(ln)
 	}()
 
 	t.Cleanup(func() {
@@ -398,13 +397,10 @@ func newTestRPCServer(t *testing.T, cfg testRPCServerConfig) *testRPCServer {
 
 func (s *testRPCServer) handle(ctxv fastrpc.HandlerCtx) fastrpc.HandlerCtx {
 	ctx := ctxv.(*contract.RequestCtx)
-	conn := ctx.Conn().(*testRPCConn)
 
 	switch ctx.Request.GetName() {
 	case contract.Auth:
-		s.handleAuth(ctx, conn)
-	case contract.Mock:
-		s.handleMock(ctx)
+		s.handleAuth(ctx)
 	case contract.Target:
 		s.handleTarget(ctx)
 	case contract.Report:
@@ -416,40 +412,40 @@ func (s *testRPCServer) handle(ctxv fastrpc.HandlerCtx) fastrpc.HandlerCtx {
 	return ctxv
 }
 
-func (s *testRPCServer) handleAuth(ctx *contract.RequestCtx, conn *testRPCConn) {
+func (s *testRPCServer) handleAuth(ctx *contract.RequestCtx) {
+	if _, ok := serverauth.GetUUID(ctx.Conn()); ok {
+		writeTestRPCError(ctx, base.RPCServerResponseCode_INVALID_REQUEST, fmt.Errorf("connection is already authenticated"))
+		return
+	}
 	if s.authStatusCode != base.RPCServerResponseCode_OK {
 		writeTestRPCError(ctx, s.authStatusCode, fmt.Errorf("unauthorized"))
 		return
 	}
 
+	authID, err := uuid.Parse(string(ctx.Request.Value()))
+	if err != nil {
+		writeTestRPCError(ctx, base.RPCServerResponseCode_UNAUTHORIZED, fmt.Errorf("invalid test JWT UUID: %w", err))
+		return
+	}
+
 	ctx.Response.SetStatusCode(base.RPCServerResponseCode_OK)
-	conn.authID = uuid.New()
+	if err := serverauth.SetUUID(ctx.Conn(), authID); err != nil {
+		writeTestRPCError(ctx, base.RPCServerResponseCode_TECH_ERROR, err)
+		return
+	}
 
 	buf := ctx.Response.SwapValue(nil)
 	buf = binary.LittleEndian.AppendUint16(buf, s.serverID)
-	buf = append(buf, conn.authID[:]...)
+	buf = append(buf, authID[:]...)
 	ctx.Response.SwapValue(buf)
 }
 
-func (s *testRPCServer) handleMock(ctx *contract.RequestCtx) {
-	req := &base.MockRequest{}
-	if err := proto.Unmarshal(ctx.Request.Value(), req); err != nil {
-		writeTestRPCError(ctx, base.RPCServerResponseCode_INVALID_REQUEST, fmt.Errorf("cannot unmarshal mock request: %w", err))
-		return
-	}
-
-	if req.StatusCode > base.RPCServerResponseCode_OK {
-		writeTestRPCError(ctx, req.StatusCode, fmt.Errorf("test rpc error"))
-		return
-	}
-
-	resp := &base.TargetResponse{
-		TrackingId: req.TrackingId,
-	}
-	writeTestRPCProto(ctx, base.RPCServerResponseCode_OK, resp)
-}
-
 func (s *testRPCServer) handleTarget(ctx *contract.RequestCtx) {
+	if _, ok := serverauth.GetUUID(ctx.Conn()); !ok {
+		writeTestRPCError(ctx, base.RPCServerResponseCode_UNAUTHORIZED, fmt.Errorf("unauthorized"))
+		return
+	}
+
 	req := &base.TargetRequest{}
 	if err := proto.Unmarshal(ctx.Request.Value(), req); err != nil {
 		writeTestRPCError(ctx, base.RPCServerResponseCode_INVALID_REQUEST, fmt.Errorf("cannot unmarshal target request: %w", err))
@@ -467,10 +463,21 @@ func (s *testRPCServer) handleTarget(ctx *contract.RequestCtx) {
 		Match:      make([]base.Match_ResponseStatus, len(req.Match)),
 		Frequency:  make([]base.Frequency_ResponseStatus, len(req.Frequency)),
 	}
+	for i := range resp.Match {
+		resp.Match[i] = base.Match_OK
+	}
+	for i := range resp.Frequency {
+		resp.Frequency[i] = base.Frequency_STATUS_PASSED
+	}
 	writeTestRPCProto(ctx, base.RPCServerResponseCode_OK, resp)
 }
 
 func (s *testRPCServer) handleReport(ctx *contract.RequestCtx) {
+	if _, ok := serverauth.GetUUID(ctx.Conn()); !ok {
+		writeTestRPCError(ctx, base.RPCServerResponseCode_UNAUTHORIZED, fmt.Errorf("unauthorized"))
+		return
+	}
+
 	req := &base.ReportRequest{}
 	if err := proto.Unmarshal(ctx.Request.Value(), req); err != nil {
 		writeTestRPCError(ctx, base.RPCServerResponseCode_INVALID_REQUEST, fmt.Errorf("cannot unmarshal report request: %w", err))
@@ -512,23 +519,6 @@ func writeTestRPCProto(ctx *contract.RequestCtx, statusCode base.RPCServerRespon
 func writeTestRPCError(ctx *contract.RequestCtx, statusCode base.RPCServerResponseCode, err error) {
 	ctx.Response.SetStatusCode(statusCode)
 	_, _ = ctx.Write([]byte(err.Error()))
-}
-
-type testRPCConn struct {
-	net.Conn
-	authID uuid.UUID
-}
-
-type testRPCListener struct {
-	net.Listener
-}
-
-func (ln *testRPCListener) Accept() (net.Conn, error) {
-	conn, err := ln.Listener.Accept()
-	if err != nil {
-		return nil, err
-	}
-	return &testRPCConn{Conn: conn}, nil
 }
 
 func newTestServerTLSCertificate(ca *mtls.Certificate) (tls.Certificate, error) {

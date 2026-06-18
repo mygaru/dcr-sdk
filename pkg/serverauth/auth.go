@@ -78,15 +78,15 @@ func (ln *Listener) Accept() (net.Conn, error) {
 	return &authConn{Conn: c}, nil
 }
 
-// FromConn returns the auth connection state attached by Listener.
-func FromConn(conn net.Conn) (Conn, bool) {
+// GetConn returns the auth connection state attached by Listener.
+func GetConn(conn net.Conn) (Conn, bool) {
 	authConn, ok := conn.(Conn)
 	return authConn, ok
 }
 
-// UUIDFromConn returns a non-zero authenticated UUID from conn.
-func UUIDFromConn(conn net.Conn) (uuid.UUID, bool) {
-	authConn, ok := FromConn(conn)
+// GetUUID returns a non-zero authenticated UUID from conn.
+func GetUUID(conn net.Conn) (uuid.UUID, bool) {
+	authConn, ok := GetConn(conn)
 	if !ok {
 		return uuid.Nil, false
 	}
@@ -94,9 +94,9 @@ func UUIDFromConn(conn net.Conn) (uuid.UUID, bool) {
 	return uid, uid != uuid.Nil
 }
 
-// MustSetUUID stores uid on conn or returns an error if conn was not created by Listener.
-func MustSetUUID(conn net.Conn, uid uuid.UUID) error {
-	authConn, ok := FromConn(conn)
+// SetUUID stores uid on conn or returns an error if conn was not created by Listener.
+func SetUUID(conn net.Conn, uid uuid.UUID) error {
+	authConn, ok := GetConn(conn)
 	if !ok {
 		return fmt.Errorf("connection auth is unavailable")
 	}
@@ -151,7 +151,7 @@ func NewTLSConfig(base *tls.Config, auth MTLSConfig) *tls.Config {
 			}
 		}
 
-		authConn, _ := FromConn(hello.Conn)
+		authConn, _ := GetConn(hello.Conn)
 		child := selected.Clone()
 		previousVerify := child.VerifyPeerCertificate
 		child.GetConfigForClient = nil

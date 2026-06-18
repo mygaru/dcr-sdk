@@ -104,7 +104,7 @@ func TestBuildShardMetricsUsesRequestAndAddrLabels(t *testing.T) {
 
 func TestDoUnaryIncrementsRequestMetric(t *testing.T) {
 	metricGroups := buildShardMetrics("request-counter.local:7943")
-	requests := metricGroups[contract.Mock].request
+	requests := metricGroups[contract.Target].request
 	before := requests.Get()
 
 	cl := &client{
@@ -123,7 +123,7 @@ func TestDoUnaryIncrementsRequestMetric(t *testing.T) {
 	cl.connGen.Store(1)
 	atomic.StoreUint64(&cl.authedGen, 1)
 
-	_, _, _ = cl.doUnary(&base.MockRequest{StatusCode: base.RPCServerResponseCode_UNAUTHORIZED}, nil, contract.Mock)
+	_, _, _ = cl.doUnary(testTargetRequest(), nil, contract.Target)
 	if got := requests.Get(); got != before+1 {
 		t.Fatalf("expected request counter to increment to %d, got %d", before+1, got)
 	}
@@ -145,7 +145,7 @@ func TestDoUnaryTimesOutAuthReconnectPath(t *testing.T) {
 	}
 
 	start := time.Now()
-	_, statusCode, err := cl.doUnary(&base.MockRequest{StatusCode: base.RPCServerResponseCode_OK}, nil, contract.Mock)
+	_, statusCode, err := cl.doUnary(testTargetRequest(), nil, contract.Target)
 	elapsed := time.Since(start)
 
 	if err == nil {
@@ -177,7 +177,7 @@ func TestDoUnaryFailsFastWhenAuthAlreadyInProgress(t *testing.T) {
 	defer cl.mu.Unlock()
 
 	start := time.Now()
-	_, statusCode, err := cl.doUnary(&base.MockRequest{StatusCode: base.RPCServerResponseCode_OK}, nil, contract.Mock)
+	_, statusCode, err := cl.doUnary(testTargetRequest(), nil, contract.Target)
 	elapsed := time.Since(start)
 
 	if err == nil {
@@ -191,5 +191,13 @@ func TestDoUnaryFailsFastWhenAuthAlreadyInProgress(t *testing.T) {
 	}
 	if elapsed >= 10*time.Millisecond {
 		t.Fatalf("expected auth-in-progress path to fail fast, elapsed %s", elapsed)
+	}
+}
+
+func testTargetRequest() *base.TargetRequest {
+	return &base.TargetRequest{
+		Uids: []*base.UID{
+			{Id: []byte("device-id"), Type: base.UID_DEVICE_ID},
+		},
 	}
 }

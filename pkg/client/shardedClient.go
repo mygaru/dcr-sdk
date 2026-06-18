@@ -13,7 +13,6 @@ import (
 	base "github.com/mygaru/dcr-sdk/gen/base1"
 	"github.com/mygaru/dcr-sdk/internal/sdkutil"
 	"github.com/mygaru/dcr-sdk/pkg/contract"
-	"google.golang.org/protobuf/proto"
 )
 
 const defaultCloudAddr = "cloud.mygaru.com:7937"
@@ -24,6 +23,10 @@ type Configuration struct {
 
 	// Client's JWT token for authentication.
 	JwtToken []byte
+
+	// DisableAuth skips the legacy contract.Auth request.
+	// It is enabled by the SDK mTLS constructor because the client identity is established during TLS handshake.
+	DisableAuth bool
 
 	// MaxRequestDuration specifies the maximum duration allowed for each request to prevent excessive timeouts or delays.
 	MaxRequestDuration time.Duration
@@ -80,21 +83,6 @@ func (sh *clientsGroup) getClient() *client {
 	return sh.clients[idx]
 }
 
-// Mock sends a mock request and returns the response, status code, and any error encountered during execution.
-// For debug usage only
-func (sc *ShardedClient) Mock(req *base.MockRequest, resp proto.Message) (proto.Message, base.RPCServerResponseCode, error) {
-	shard := sc.getGroup()
-	cl := shard.getClient()
-
-	res, statusCode, err := cl.doUnary(req, resp, contract.Mock)
-	if nil != err {
-		return nil, statusCode, err
-	}
-
-	shard.id.Store(uint32(cl.serverID))
-	return res, statusCode, nil
-}
-
 // Target is the primary request used by a third-party platform to:
 // Verify if the user belongs to specific segments;
 // Check frequency capping compliance by key;
@@ -107,8 +95,16 @@ func (sc *ShardedClient) Target(req *base.TargetRequest) (*base.TargetResponse, 
 	if nil != err {
 		return nil, statusCode, err
 	}
-	shard.id.Store(uint32(cl.serverID))
-	return res.(*base.TargetResponse), statusCode, nil
+	targetResp := res.(*base.TargetResponse)
+	serverID := cl.serverID
+	if serverID == 0 {
+		serverID = uniqid.GetServerID(targetResp.TrackingId)
+		cl.serverID = serverID
+	}
+	if serverID > 0 {
+		shard.id.Store(uint32(serverID))
+	}
+	return targetResp, statusCode, nil
 }
 
 // Report is used by a third-party platform to report that a specific event has occurred.
@@ -210,6 +206,7 @@ func NewClient(cfg *Configuration, tlsConfig *tls.Config) *ShardedClient {
 				maxRequestDuration: cfg.MaxRequestDuration,
 				metricGroups:       metrics,
 				JwtToken:           cfg.JwtToken,
+				disableAuth:        cfg.DisableAuth,
 				c: &fastrpc.Client{
 					SniffHeader:     sdkutil.SniffHeader,
 					ProtocolVersion: sdkutil.ProtocolVersion,

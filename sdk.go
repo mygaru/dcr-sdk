@@ -47,7 +47,12 @@ func NewWithMTLS(cfg *client.Configuration, mtlsCfg MTLSConfig) (*client.Sharded
 	if err != nil {
 		return nil, err
 	}
-	return NewWithTLS(cfg, tlsConfig), nil
+	cfgCopy := &client.Configuration{}
+	if cfg != nil {
+		*cfgCopy = *cfg
+	}
+	cfgCopy.DisableAuth = true
+	return NewWithTLS(cfgCopy, tlsConfig), nil
 }
 
 // NewMTLSClientConfig builds a TLS client config and validates the client certificate with mtls.CheckTLS.
