@@ -7,23 +7,18 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"math/big"
 	"net"
-	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/aradilov/fastrpc"
 	"github.com/google/uuid"
 	base "github.com/mygaru/dcr-sdk/gen/base1"
-	"github.com/mygaru/dcr-sdk/internal/sdkutil"
-	"github.com/mygaru/dcr-sdk/pkg/contract"
+	"github.com/mygaru/dcr-sdk/internal/testcloud"
 	"github.com/mygaru/dcr-sdk/pkg/serverauth"
 	"gitlab.adtelligent.com/awesome/mtls"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/mygaru/dcr-sdk/pkg/client"
 )
@@ -33,8 +28,8 @@ const MaximumSimultaneousConnections = 4
 func getTestClient(t *testing.T) *client.ShardedClient {
 	t.Helper()
 
-	server := newTestRPCServer(t, testRPCServerConfig{})
-	return newTestClient(server.addr, MaximumSimultaneousConnections)
+	server := startTestCloud(t, testcloud.Config{})
+	return newTestClient(server.Addr(), MaximumSimultaneousConnections)
 }
 
 func newTestClient(addr string, maximumSimultaneousConnections int) *client.ShardedClient {
@@ -46,8 +41,8 @@ func newTestClient(addr string, maximumSimultaneousConnections int) *client.Shar
 }
 
 func TestTargetReturnsTrackingIDAndReportRoutesByIt(t *testing.T) {
-	server := newTestRPCServer(t, testRPCServerConfig{serverID: 1024})
-	rpc := newTestClient(server.addr, 2)
+	server := startTestCloud(t, testcloud.Config{ServerID: 1024})
+	rpc := newTestClient(server.Addr(), 2)
 
 	resp, sc, err := rpc.Target(&base.TargetRequest{
 		Uids: []*base.UID{
@@ -89,7 +84,7 @@ func TestTargetReturnsTrackingIDAndReportRoutesByIt(t *testing.T) {
 		t.Fatalf("expected status code to be %d, got %d", base.RPCServerResponseCode_OK, sc)
 	}
 
-	got := server.nextReport(t)
+	got := nextReport(t, server)
 	if string(got.TrackingId) != string(report.TrackingId) {
 		t.Fatalf("expected report tracking id %q, got %q", report.TrackingId, got.TrackingId)
 	}
@@ -117,10 +112,10 @@ func TestAuth(t *testing.T) {
 }
 
 func TestAuthFailureReturnsUnauthorized(t *testing.T) {
-	server := newTestRPCServer(t, testRPCServerConfig{
-		authStatusCode: base.RPCServerResponseCode_UNAUTHORIZED,
+	server := startTestCloud(t, testcloud.Config{
+		AuthStatusCode: base.RPCServerResponseCode_UNAUTHORIZED,
 	})
-	rpc := newTestClient(server.addr, 1)
+	rpc := newTestClient(server.Addr(), 1)
 
 	_, sc, err := rpc.Target(testTargetRequest())
 	if !errors.Is(err, client.ErrorUnauthorized) {
@@ -159,15 +154,15 @@ func TestNewWithMTLSUsesClientCertificate(t *testing.T) {
 	serverRoots := x509.NewCertPool()
 	serverRoots.AddCert(serverCA.Cert)
 
-	server := newTestRPCServer(t, testRPCServerConfig{
-		tlsConfig: serverauth.NewTLSConfig(&tls.Config{
+	server := startTestCloud(t, testcloud.Config{
+		TLSConfig: serverauth.NewTLSConfig(&tls.Config{
 			Certificates: []tls.Certificate{serverTLSCert},
 			MinVersion:   tls.VersionTLS12,
 		}, serverauth.MTLSConfig{Roots: clientRoots}),
 	})
 
 	rpc, err := NewWithMTLS(&client.Configuration{
-		Addrs:                          server.addr,
+		Addrs:                          server.Addr(),
 		MaximumSimultaneousConnections: 1,
 	}, MTLSConfig{
 		CertPEM:         clientCert.CertPEM,
@@ -216,10 +211,10 @@ func TestNewWithMTLSRejectsInvalidClientCertificate(t *testing.T) {
 }
 
 func TestTargetReturnsServerStatusError(t *testing.T) {
-	server := newTestRPCServer(t, testRPCServerConfig{
-		targetStatus: base.RPCServerResponseCode_SERVICE_UNAVAILABLE,
+	server := startTestCloud(t, testcloud.Config{
+		TargetStatus: base.RPCServerResponseCode_SERVICE_UNAVAILABLE,
 	})
-	rpc := newTestClient(server.addr, 1)
+	rpc := newTestClient(server.Addr(), 1)
 
 	resp, sc, err := rpc.Target(&base.TargetRequest{
 		Uids: []*base.UID{
@@ -317,208 +312,31 @@ func testTargetRequest() *base.TargetRequest {
 	}
 }
 
-type testRPCServerConfig struct {
-	authStatusCode base.RPCServerResponseCode
-	serverID       uint16
-	targetStatus   base.RPCServerResponseCode
-	tlsConfig      *tls.Config
-}
-
-type testRPCServer struct {
-	addr     string
-	serverID uint16
-	reports  chan *base.ReportRequest
-	seq      atomic.Uint64
-
-	authStatusCode base.RPCServerResponseCode
-	targetStatus   base.RPCServerResponseCode
-}
-
-func newTestRPCServer(t *testing.T, cfg testRPCServerConfig) *testRPCServer {
+func startTestCloud(t *testing.T, cfg testcloud.Config) *testcloud.Server {
 	t.Helper()
 
-	if cfg.authStatusCode == base.RPCServerResponseCode_UNKNOWN {
-		cfg.authStatusCode = base.RPCServerResponseCode_OK
-	}
-	if cfg.serverID == 0 {
-		cfg.serverID = 1024
-	}
-	if cfg.targetStatus == base.RPCServerResponseCode_UNKNOWN {
-		cfg.targetStatus = base.RPCServerResponseCode_OK
-	}
-
-	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	server, err := testcloud.Start(cfg)
 	if err != nil {
-		t.Fatalf("cannot listen on test tcp addr: %v", err)
+		t.Fatalf("start test-cloud: %v", err)
 	}
-	ln = serverauth.NewListener(ln)
-
-	testServer := &testRPCServer{
-		addr:           ln.Addr().String(),
-		serverID:       cfg.serverID,
-		reports:        make(chan *base.ReportRequest, 8),
-		authStatusCode: cfg.authStatusCode,
-		targetStatus:   cfg.targetStatus,
-	}
-
-	server := &fastrpc.Server{
-		SniffHeader:     sdkutil.SniffHeader,
-		ProtocolVersion: sdkutil.ProtocolVersion,
-		Handler:         testServer.handle,
-		NewHandlerCtx: func() fastrpc.HandlerCtx {
-			return &contract.RequestCtx{}
-		},
-		ReadTimeout:      5 * time.Minute,
-		WriteTimeout:     10 * time.Second,
-		CompressType:     fastrpc.CompressSnappy,
-		PipelineRequests: true,
-		TLSConfig:        cfg.tlsConfig,
-	}
-
-	done := make(chan error, 1)
-	go func() {
-		done <- server.Serve(ln)
-	}()
-
 	t.Cleanup(func() {
-		_ = ln.Close()
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Errorf("test rpc server stopped with error: %v", err)
-			}
-		case <-time.After(time.Second):
-			t.Errorf("test rpc server did not stop in time")
+		if err := server.Close(); err != nil {
+			t.Errorf("stop test-cloud: %v", err)
 		}
 	})
-
-	return testServer
+	return server
 }
 
-func (s *testRPCServer) handle(ctxv fastrpc.HandlerCtx) fastrpc.HandlerCtx {
-	ctx := ctxv.(*contract.RequestCtx)
-
-	switch ctx.Request.GetName() {
-	case contract.Auth:
-		s.handleAuth(ctx)
-	case contract.Target:
-		s.handleTarget(ctx)
-	case contract.Report:
-		s.handleReport(ctx)
-	default:
-		writeTestRPCError(ctx, base.RPCServerResponseCode_INVALID_REQUEST, fmt.Errorf("unsupported request name: %s", ctx.Request.GetName()))
-	}
-
-	return ctxv
-}
-
-func (s *testRPCServer) handleAuth(ctx *contract.RequestCtx) {
-	if _, ok := serverauth.GetUUID(ctx.Conn()); ok {
-		writeTestRPCError(ctx, base.RPCServerResponseCode_INVALID_REQUEST, fmt.Errorf("connection is already authenticated"))
-		return
-	}
-	if s.authStatusCode != base.RPCServerResponseCode_OK {
-		writeTestRPCError(ctx, s.authStatusCode, fmt.Errorf("unauthorized"))
-		return
-	}
-
-	authID, err := uuid.Parse(string(ctx.Request.Value()))
-	if err != nil {
-		writeTestRPCError(ctx, base.RPCServerResponseCode_UNAUTHORIZED, fmt.Errorf("invalid test JWT UUID: %w", err))
-		return
-	}
-
-	ctx.Response.SetStatusCode(base.RPCServerResponseCode_OK)
-	if err := serverauth.SetUUID(ctx.Conn(), authID); err != nil {
-		writeTestRPCError(ctx, base.RPCServerResponseCode_TECH_ERROR, err)
-		return
-	}
-
-	buf := ctx.Response.SwapValue(nil)
-	buf = binary.LittleEndian.AppendUint16(buf, s.serverID)
-	buf = append(buf, authID[:]...)
-	ctx.Response.SwapValue(buf)
-}
-
-func (s *testRPCServer) handleTarget(ctx *contract.RequestCtx) {
-	if _, ok := serverauth.GetUUID(ctx.Conn()); !ok {
-		writeTestRPCError(ctx, base.RPCServerResponseCode_UNAUTHORIZED, fmt.Errorf("unauthorized"))
-		return
-	}
-
-	req := &base.TargetRequest{}
-	if err := proto.Unmarshal(ctx.Request.Value(), req); err != nil {
-		writeTestRPCError(ctx, base.RPCServerResponseCode_INVALID_REQUEST, fmt.Errorf("cannot unmarshal target request: %w", err))
-		return
-	}
-
-	if s.targetStatus != base.RPCServerResponseCode_OK {
-		writeTestRPCError(ctx, s.targetStatus, fmt.Errorf("target failed"))
-		return
-	}
-
-	resp := &base.TargetResponse{
-		TrackingId: s.nextTrackingID(),
-		StatusCode: base.RPCServerResponseCode_OK,
-		Match:      make([]base.Match_ResponseStatus, len(req.Match)),
-		Frequency:  make([]base.Frequency_ResponseStatus, len(req.Frequency)),
-	}
-	for i := range resp.Match {
-		resp.Match[i] = base.Match_OK
-	}
-	for i := range resp.Frequency {
-		resp.Frequency[i] = base.Frequency_STATUS_PASSED
-	}
-	writeTestRPCProto(ctx, base.RPCServerResponseCode_OK, resp)
-}
-
-func (s *testRPCServer) handleReport(ctx *contract.RequestCtx) {
-	if _, ok := serverauth.GetUUID(ctx.Conn()); !ok {
-		writeTestRPCError(ctx, base.RPCServerResponseCode_UNAUTHORIZED, fmt.Errorf("unauthorized"))
-		return
-	}
-
-	req := &base.ReportRequest{}
-	if err := proto.Unmarshal(ctx.Request.Value(), req); err != nil {
-		writeTestRPCError(ctx, base.RPCServerResponseCode_INVALID_REQUEST, fmt.Errorf("cannot unmarshal report request: %w", err))
-		return
-	}
-
-	s.reports <- req
-	ctx.Response.SetStatusCode(base.RPCServerResponseCode_OK)
-}
-
-func (s *testRPCServer) nextTrackingID() []byte {
-	n := s.seq.Add(1)
-	return []byte(fmt.Sprintf("%04X%012X", s.serverID, n))
-}
-
-func (s *testRPCServer) nextReport(t *testing.T) *base.ReportRequest {
+func nextReport(t *testing.T, server *testcloud.Server) *base.ReportRequest {
 	t.Helper()
 
 	select {
-	case report := <-s.reports:
+	case report := <-server.Reports():
 		return report
 	case <-time.After(time.Second):
 		t.Fatalf("timed out waiting for report request")
 		return nil
 	}
-}
-
-func writeTestRPCProto(ctx *contract.RequestCtx, statusCode base.RPCServerResponseCode, msg proto.Message) {
-	bb, err := proto.Marshal(msg)
-	if err != nil {
-		writeTestRPCError(ctx, base.RPCServerResponseCode_TECH_ERROR, fmt.Errorf("cannot marshal response: %w", err))
-		return
-	}
-
-	ctx.Response.SetStatusCode(statusCode)
-	_, _ = ctx.Write(bb)
-}
-
-func writeTestRPCError(ctx *contract.RequestCtx, statusCode base.RPCServerResponseCode, err error) {
-	ctx.Response.SetStatusCode(statusCode)
-	_, _ = ctx.Write([]byte(err.Error()))
 }
 
 func newTestServerTLSCertificate(ca *mtls.Certificate) (tls.Certificate, error) {
