@@ -82,6 +82,9 @@ const (
 	EventType_EVENT_TYPE_BILLING             EventType = 1 // Billing event (e.g., click, install)
 	EventType_EVENT_TYPE_VIEWABLE_IMPRESSION EventType = 2 // Viewable impression only
 	EventType_EVENT_TYPE_CLICK               EventType = 4 // Click event
+	EventType_EVENT_TYPE_WINS                EventType = 5 // Wins
+	EventType_EVENT_TYPE_AT                  EventType = 6 // Action Trackers
+	EventType_EVENT_TYPE_BIDS                EventType = 7 // Bids
 )
 
 // Enum value maps for EventType.
@@ -91,12 +94,18 @@ var (
 		1: "EVENT_TYPE_BILLING",
 		2: "EVENT_TYPE_VIEWABLE_IMPRESSION",
 		4: "EVENT_TYPE_CLICK",
+		5: "EVENT_TYPE_WINS",
+		6: "EVENT_TYPE_AT",
+		7: "EVENT_TYPE_BIDS",
 	}
 	EventType_value = map[string]int32{
 		"EVENT_TYPE_IMPRESSION":          0,
 		"EVENT_TYPE_BILLING":             1,
 		"EVENT_TYPE_VIEWABLE_IMPRESSION": 2,
 		"EVENT_TYPE_CLICK":               4,
+		"EVENT_TYPE_WINS":                5,
+		"EVENT_TYPE_AT":                  6,
+		"EVENT_TYPE_BIDS":                7,
 	}
 )
 
@@ -201,12 +210,15 @@ const file_base_v1_common_proto_rawDesc = "" +
 	"\x12TRAFFIC_TYPE_VIDEO\x10\x00\x12\x18\n" +
 	"\x14TRAFFIC_TYPE_DISPLAY\x10\x01\x12\x16\n" +
 	"\x12TRAFFIC_TYPE_AUDIO\x10\x02\x12\x17\n" +
-	"\x13TRAFFIC_TYPE_NATIVE\x10\x03*x\n" +
+	"\x13TRAFFIC_TYPE_NATIVE\x10\x03*\xb5\x01\n" +
 	"\tEventType\x12\x19\n" +
 	"\x15EVENT_TYPE_IMPRESSION\x10\x00\x12\x16\n" +
 	"\x12EVENT_TYPE_BILLING\x10\x01\x12\"\n" +
 	"\x1eEVENT_TYPE_VIEWABLE_IMPRESSION\x10\x02\x12\x14\n" +
-	"\x10EVENT_TYPE_CLICK\x10\x04*\x9d\x01\n" +
+	"\x10EVENT_TYPE_CLICK\x10\x04\x12\x13\n" +
+	"\x0fEVENT_TYPE_WINS\x10\x05\x12\x11\n" +
+	"\rEVENT_TYPE_AT\x10\x06\x12\x13\n" +
+	"\x0fEVENT_TYPE_BIDS\x10\a*\x9d\x01\n" +
 	"\x15RPCServerResponseCode\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\x06\n" +
 	"\x02OK\x10\x01\x12\x10\n" +

@@ -15,10 +15,13 @@ enum TrafficType {
 
 // Enumeration for event types
 enum EventType {
-  EVENT_TYPE_IMPRESSION = 0;             // Ad impression
-  EVENT_TYPE_BILLING = 1;                // Billing event (e.g., click, install)
-  EVENT_TYPE_VIEWABLE_IMPRESSION = 2;    // Viewable impression only
-  EVENT_TYPE_CLICK = 4;                  // Click event
+  EVENT_TYPE_IMPRESSION = 0;            // Ad impression
+  EVENT_TYPE_BILLING = 1;               // Billing event (e.g., click, install)
+  EVENT_TYPE_VIEWABLE_IMPRESSION = 2;   // Viewable impression only
+  EVENT_TYPE_CLICK = 4;                 // Click event
+  EVENT_TYPE_WINS = 5;                  // Wins
+  EVENT_TYPE_AT = 6;                    // Action Trackers
+  EVENT_TYPE_BIDS = 7;                  // Bids
 }
 
 // Common match statuses

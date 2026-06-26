@@ -32,6 +32,13 @@ message ReportRequest {
     repeated uint64 frequency = 4;
 
 
+    // Adv Line Item ID
+    uint32 LI = 5;
+
+    // Adv Campaign ID
+    uint32 CmpID = 6;
+
+
   }
 
 }
