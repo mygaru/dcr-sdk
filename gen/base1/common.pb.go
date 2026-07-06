@@ -25,10 +25,12 @@ const (
 type TrafficType int32
 
 const (
-	TrafficType_TRAFFIC_TYPE_VIDEO   TrafficType = 0 // Video traffic
-	TrafficType_TRAFFIC_TYPE_DISPLAY TrafficType = 1 // Display traffic
-	TrafficType_TRAFFIC_TYPE_AUDIO   TrafficType = 2 // Audio traffic
-	TrafficType_TRAFFIC_TYPE_NATIVE  TrafficType = 3 // Native traffic
+	TrafficType_TRAFFIC_TYPE_VIDEO             TrafficType = 0
+	TrafficType_TRAFFIC_TYPE_DISPLAY           TrafficType = 1
+	TrafficType_TRAFFIC_TYPE_AUDIO             TrafficType = 2
+	TrafficType_TRAFFIC_TYPE_NATIVE            TrafficType = 3
+	TrafficType_TRAFFIC_TYPE_VIDEO_SENSITIVE   TrafficType = 4
+	TrafficType_TRAFFIC_TYPE_DISPLAY_SENSITIVE TrafficType = 5
 )
 
 // Enum value maps for TrafficType.
@@ -38,12 +40,16 @@ var (
 		1: "TRAFFIC_TYPE_DISPLAY",
 		2: "TRAFFIC_TYPE_AUDIO",
 		3: "TRAFFIC_TYPE_NATIVE",
+		4: "TRAFFIC_TYPE_VIDEO_SENSITIVE",
+		5: "TRAFFIC_TYPE_DISPLAY_SENSITIVE",
 	}
 	TrafficType_value = map[string]int32{
-		"TRAFFIC_TYPE_VIDEO":   0,
-		"TRAFFIC_TYPE_DISPLAY": 1,
-		"TRAFFIC_TYPE_AUDIO":   2,
-		"TRAFFIC_TYPE_NATIVE":  3,
+		"TRAFFIC_TYPE_VIDEO":             0,
+		"TRAFFIC_TYPE_DISPLAY":           1,
+		"TRAFFIC_TYPE_AUDIO":             2,
+		"TRAFFIC_TYPE_NATIVE":            3,
+		"TRAFFIC_TYPE_VIDEO_SENSITIVE":   4,
+		"TRAFFIC_TYPE_DISPLAY_SENSITIVE": 5,
 	}
 )
 
@@ -205,12 +211,14 @@ var File_base_v1_common_proto protoreflect.FileDescriptor
 
 const file_base_v1_common_proto_rawDesc = "" +
 	"\n" +
-	"\x14base/v1/common.proto\x12\x06common*p\n" +
+	"\x14base/v1/common.proto\x12\x06common*\xb6\x01\n" +
 	"\vTrafficType\x12\x16\n" +
 	"\x12TRAFFIC_TYPE_VIDEO\x10\x00\x12\x18\n" +
 	"\x14TRAFFIC_TYPE_DISPLAY\x10\x01\x12\x16\n" +
 	"\x12TRAFFIC_TYPE_AUDIO\x10\x02\x12\x17\n" +
-	"\x13TRAFFIC_TYPE_NATIVE\x10\x03*\xb5\x01\n" +
+	"\x13TRAFFIC_TYPE_NATIVE\x10\x03\x12 \n" +
+	"\x1cTRAFFIC_TYPE_VIDEO_SENSITIVE\x10\x04\x12\"\n" +
+	"\x1eTRAFFIC_TYPE_DISPLAY_SENSITIVE\x10\x05*\xb5\x01\n" +
 	"\tEventType\x12\x19\n" +
 	"\x15EVENT_TYPE_IMPRESSION\x10\x00\x12\x16\n" +
 	"\x12EVENT_TYPE_BILLING\x10\x01\x12\"\n" +

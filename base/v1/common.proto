@@ -7,10 +7,13 @@ package common;
 
 // Enumeration for traffic types
 enum TrafficType {
-  TRAFFIC_TYPE_VIDEO = 0;   // Video traffic
-  TRAFFIC_TYPE_DISPLAY = 1; // Display traffic
-  TRAFFIC_TYPE_AUDIO = 2;   // Audio traffic
-  TRAFFIC_TYPE_NATIVE = 3;  // Native traffic
+  TRAFFIC_TYPE_VIDEO = 0;
+  TRAFFIC_TYPE_DISPLAY = 1;
+  TRAFFIC_TYPE_AUDIO = 2;
+  TRAFFIC_TYPE_NATIVE = 3;
+  TRAFFIC_TYPE_VIDEO_SENSITIVE = 4;
+  TRAFFIC_TYPE_DISPLAY_SENSITIVE = 5;
+
 }
 
 // Enumeration for event types
