@@ -11,7 +11,8 @@ It provides a lightweight RPC client built on top of a custom binary protocol an
 - Low-overhead binary protocol
 - Snappy-compressed transport
 - Built on top of `fastrpc`
-- Optional mTLS support for production environments
+- mTLS support for production environments
+- Certificate handling (an example on how to handle certificates is in the `cmd/client-example/main.go` file).
 - Request/response protobuf contracts
 
 ---
@@ -30,7 +31,7 @@ go get github.com/mygaru/dcr-sdk
 .
 ├── base/v1              # protobuf schemas
 ├── gen/base1            # generated protobuf Go code
-├── pkg/contract    # low-level RPC wire contract
+├── pkg/contract         # low-level RPC wire contract
 ├── pkg/client           # sharded RPC client implementation
 └── sdk.go               # public constructors
 ```
@@ -41,9 +42,14 @@ go get github.com/mygaru/dcr-sdk
 
 The root package exposes two constructors:
 
-- `New(cfg)` — creates a client for tests, debug flows, or non-TLS environments
+- `New(cfg)` — creates a client for tests, debug flows, or non-TLS environments (option for myGaru developers)
 - `NewWithTLS(cfg, tlsConfig)` — creates a client for production mTLS communication
-- `NewWithMTLS(cfg, mtlsConfig)` — creates a client from PEM-encoded mTLS certificate material
+- **when certificates handling (GetClientCertificate) will be implemented, this constructor can be removed from the codebase** ~~`NewWithMTLS(cfg, mtlsConfig)` — creates a client from PEM-encoded mTLS certificate material~~
+
+## Production setup
+Production connections require **mTLS**. Initially, client certificate is provided by myGaru using out of band secure channels. Certificate renewal is automated using an example in `cmd/client-example/main.go`.
+
+Use `dcr.NewWithTLS` to create sdkClient as shown in the `cmd/client-example/main.go` example.
 
 ## Configuration
 
@@ -51,12 +57,12 @@ The transport client is configured with `client.Configuration`.
 
 ```go
 type Configuration struct {
-	// Comma-separated list of shard addresses.
+    // Comma-separated list of shard addresses.
     // By default: cloud.mygaru.com:7937
     Addrs string
 
-	// JWT token used for authentication.
-	JwtToken []byte
+    // JWT token used for authentication.
+    JwtToken []byte
 
     //Maximum allowed duration for a request.
     //If zero, a default timeout is used.
@@ -66,10 +72,10 @@ type Configuration struct {
     //If zero, it falls back to `MaxRequestDuration`.
     MaxDialDuration    time.Duration
 
-	// How often hostnames are re-resolved.
-	// If zero, the default refresh interval is used.
-	// If negative, periodic refresh is disabled.
-	DNSRefreshInterval time.Duration
+    // How often hostnames are re-resolved.
+    // If zero, the default refresh interval is used.
+    // If negative, periodic refresh is disabled.
+    DNSRefreshInterval time.Duration
 
     // Maximum number of in-flight requests per underlying transport client.
     // By default: 8.
@@ -79,7 +85,7 @@ type Configuration struct {
     // By default: 128.
     MaximumSimultaneousConnections int
 
-	// Transport buffer sizes in bytes.
+    // Transport buffer sizes in bytes.
     ReadBufferSize  int
     WriteBufferSize int
 }
@@ -145,74 +151,9 @@ requests_per_second = 1,024,000 RPC/s
 
 Treat this as an upper bound. Real throughput also depends on server capacity, network latency distribution, payload size, CPU, TLS overhead, and how much concurrency the application actually produces.
 
-## mTLS Configuration
-
-Production clients should use mTLS. The SDK provides `NewWithMTLS`, which validates the client certificate with `gitlab.adtelligent.com/awesome/mtls`, builds a `tls.Config`, and then creates the RPC client through `NewWithTLS`.
-
-Example:
-
-```go
-package main
-
-import (
-	"crypto/x509"
-	"os"
-	"time"
-
-	dcr "github.com/mygaru/dcr-sdk"
-	"github.com/mygaru/dcr-sdk/pkg/client"
-)
-
-func main() {
-	clientCertPEM, err := os.ReadFile("./certs/client.pem")
-	if err != nil {
-		panic(err)
-	}
-	clientKeyPEM, err := os.ReadFile("./certs/client-key.pem")
-	if err != nil {
-		panic(err)
-	}
-	serverCAPEM, err := os.ReadFile("./certs/server-ca.pem")
-	if err != nil {
-		panic(err)
-	}
-	clientCAPEM, err := os.ReadFile("./certs/client-ca.pem")
-	if err != nil {
-		panic(err)
-	}
-
-	serverRoots := x509.NewCertPool()
-	if !serverRoots.AppendCertsFromPEM(serverCAPEM) {
-		panic("cannot parse server CA")
-	}
-	clientRoots := x509.NewCertPool()
-	if !clientRoots.AppendCertsFromPEM(clientCAPEM) {
-		panic("cannot parse client CA")
-	}
-
-	rpc, err := dcr.NewWithMTLS(&client.Configuration{
-		Addrs:                          "cloud.mygaru.com:7937",
-		JwtToken:                       []byte("JWT_TOKEN"),
-		MaxRequestDuration:             time.Second,
-		MaximumSimultaneousConnections: 128,
-	}, dcr.MTLSConfig{
-		CertPEM:         clientCertPEM,
-		KeyPEM:          clientKeyPEM,
-		ServerRootCAs:   serverRoots,
-		ServerName:      "cloud.mygaru.com",
-		ClientCertRoots: clientRoots,
-	})
-	if err != nil {
-		panic(err)
-	}
-
-	_ = rpc
-}
-```
-
-Use `ServerRootCAs` to verify the DCR RPC server certificate. Use `ClientCertRoots` to validate the client certificate before the SDK opens the connection. If `ClientCertRoots` is nil, `mtls.CheckTLS` falls back to the system root CA pool.
-
 ## Main RPC Methods
+
+The SDK client (`*client.ShardedClient`) exposes two primary methods: `Target` and `Report`.
 
 ### `Target`
 
@@ -221,6 +162,10 @@ Use `ServerRootCAs` to verify the DCR RPC server certificate. Use `ClientCertRoo
 - check whether the user belongs to one or more target segments
 - validate frequency capping
 - determine matching quality / identification quality
+
+> **Note on Frequency Capping:** Frequency capping parameters in `TargetRequest` (`Frequency` field) are **currently not implemented on the backend side**. Passing frequency rules will be safely ignored by the server at this time.
+
+`Target` returns a 16-byte `TrackingId` needed for subsequent event reporting (via `Report` method)
 
 ```go
 resp, status, err := cli.Target(req)
@@ -297,18 +242,18 @@ req := &base.ReportRequest{
    Event:      base.EventType_EVENT_TYPE_IMPRESSION,
    Rules: []*base.ReportRequest_Rule{
     {
-		// Traffic type used for pricing
-		TrafficType: base.TrafficType_TRAFFIC_TYPE_VIDEO, 
-		
-		// Amount of events, aka Impressions
-		EventsCount: 1, 
-		// List of segments used to make the decision
-		SegmentIds: []uint32{1,2,3}, 
-		
-		// List of keys used to make the decision and which need to be increased
-		Frequency: []uint64{429496729345}},
+        // Traffic type used for pricing
+        TrafficType: base.TrafficType_TRAFFIC_TYPE_VIDEO, 
+        
+        // Amount of events, aka Impressions
+        EventsCount: 1, 
+        // List of segments used to make the decision
+        SegmentIds: []uint32{1,2,3}, 
+        
+        // List of keys used to make the decision and which need to be increased
+        Frequency: []uint64{429496729345}},
    },
-   }
+}
 status, err := cli.Report(req)
 if err != nil {
     panic(err)
