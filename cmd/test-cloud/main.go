@@ -9,8 +9,8 @@ import (
 	"log"
 	"os"
 
-	"gitlab.mygaru.com/mygaru/dcr-sdk/internal/testcloud"
-	"gitlab.mygaru.com/mygaru/dcr-sdk/pkg/serverauth"
+	"github.com/mygaru/dcr-sdk/internal/testcloud"
+	"github.com/mygaru/dcr-sdk/pkg/serverauth"
 )
 
 var (

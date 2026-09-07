@@ -277,7 +277,7 @@ const file_base_v1_rpc_target_proto_rawDesc = "" +
 	"\vstatus_code\x18\x02 \x01(\x0e2\x1d.common.RPCServerResponseCodeR\n" +
 	"statusCode\x12A\n" +
 	"\tfrequency\x18\x03 \x03(\x0e2#.frequency.Frequency.ResponseStatusR\tfrequency\x121\n" +
-	"\x05match\x18\x04 \x03(\x0e2\x1b.match.Match.ResponseStatusR\x05matchBAB\tmyGaruSDKZ\x2fgitlab.mygaru.com/mygaru/dcr-sdk/gen/base1;base\x92\x03\x02\b\x02b\beditionsp\xe8\a"
+	"\x05match\x18\x04 \x03(\x0e2\x1b.match.Match.ResponseStatusR\x05matchBAB\tmyGaruSDKZ\x2fgithub.com/mygaru/dcr-sdk/gen/base1;base\x92\x03\x02\b\x02b\beditionsp\xe8\a"
 
 var (
 	file_base_v1_rpc_target_proto_rawDescOnce sync.Once

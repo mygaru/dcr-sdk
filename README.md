@@ -20,7 +20,7 @@ It provides a lightweight RPC client built on top of a custom binary protocol an
 ## Installation
 
 ```bash
-go get gitlab.mygaru.com/mygaru/dcr-sdk
+go get github.com/mygaru/dcr-sdk
 ```
 
 ---

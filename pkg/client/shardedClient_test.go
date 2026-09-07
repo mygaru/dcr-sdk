@@ -8,8 +8,8 @@ import (
 
 	"github.com/VictoriaMetrics/metrics"
 	"github.com/aradilov/fastrpc"
-	base "gitlab.mygaru.com/mygaru/dcr-sdk/gen/base1"
-	"gitlab.mygaru.com/mygaru/dcr-sdk/pkg/contract"
+	base "github.com/mygaru/dcr-sdk/gen/base1"
+	"github.com/mygaru/dcr-sdk/pkg/contract"
 )
 
 func TestNewClientNormalizesAddrs(t *testing.T) {

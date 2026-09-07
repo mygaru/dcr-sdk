@@ -1,4 +1,4 @@
-module gitlab.mygaru.com/mygaru/dcr-sdk
+module github.com/mygaru/dcr-sdk
 
 go 1.26.2
 

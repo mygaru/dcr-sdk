@@ -16,11 +16,11 @@ import (
 
 	"github.com/google/uuid"
 	"gitlab.adtelligent.com/awesome/mtls"
-	base "gitlab.mygaru.com/mygaru/dcr-sdk/gen/base1"
-	"gitlab.mygaru.com/mygaru/dcr-sdk/internal/testcloud"
-	"gitlab.mygaru.com/mygaru/dcr-sdk/pkg/serverauth"
+	base "github.com/mygaru/dcr-sdk/gen/base1"
+	"github.com/mygaru/dcr-sdk/internal/testcloud"
+	"github.com/mygaru/dcr-sdk/pkg/serverauth"
 
-	"gitlab.mygaru.com/mygaru/dcr-sdk/pkg/client"
+	"github.com/mygaru/dcr-sdk/pkg/client"
 )
 
 const MaximumSimultaneousConnections = 4

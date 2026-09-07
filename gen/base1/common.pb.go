@@ -237,7 +237,7 @@ const file_base_v1_common_proto_rawDesc = "" +
 	"\x0fINVALID_REQUEST\x10\x05\x12\x0e\n" +
 	"\n" +
 	"TECH_ERROR\x10\x06\x12\x11\n" +
-	"\rNETWORK_ERROR\x10\aB<B\tMyGaruSDKZ\x2fgitlab.mygaru.com/mygaru/dcr-sdk/gen/base1;baseb\beditionsp\xe8\a"
+	"\rNETWORK_ERROR\x10\aB<B\tMyGaruSDKZ\x2fgithub.com/mygaru/dcr-sdk/gen/base1;baseb\beditionsp\xe8\a"
 
 var (
 	file_base_v1_common_proto_rawDescOnce sync.Once
