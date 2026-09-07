@@ -40,7 +40,7 @@ type ReportRequest struct {
 	//
 	// When left empty the SDK fills it in from the partner id of the deprecated
 	// Configuration.JwtToken.
-	Payer string `protobuf:"bytes,4,opt,name=payer" json:"payer,omitempty"`
+	Payer string `protobuf:"bytes,5,opt,name=payer" json:"payer,omitempty"`
 	// Tracking id for BE reporting
 	TrackingId []byte `protobuf:"bytes,1,opt,name=tracking_id,json=trackingId" json:"tracking_id,omitempty"`
 	// Type of event being tracked
@@ -218,9 +218,9 @@ var File_base_v1_rpc_report_proto protoreflect.FileDescriptor
 
 const file_base_v1_rpc_report_proto_rawDesc = "" +
 	"\n" +
-	"\x18base/v1/rpc.report.proto\x12\x06report\x1a\x14base/v1/common.proto\"\x80\x03\n" +
+	"\x18base/v1/rpc.report.proto\x12\x06report\x1a\x14base/v1/common.proto\"\x86\x03\n" +
 	"\rReportRequest\x12\x14\n" +
-	"\x05payer\x18\x04 \x01(\tR\x05payer\x12\x1f\n" +
+	"\x05payer\x18\x05 \x01(\tR\x05payer\x12\x1f\n" +
 	"\vtracking_id\x18\x01 \x01(\fR\n" +
 	"trackingId\x12'\n" +
 	"\x05event\x18\x02 \x01(\x0e2\x11.common.EventTypeR\x05event\x120\n" +
@@ -233,7 +233,7 @@ const file_base_v1_rpc_report_proto_rawDesc = "" +
 	"\tfrequency\x18\x04 \x03(\x04R\tfrequency\x12\x0e\n" +
 	"\x02LI\x18\x05 \x01(\rR\x02LI\x12\x14\n" +
 	"\x05CmpID\x18\x06 \x01(\rR\x05CmpID\x12\x14\n" +
-	"\x05payer\x18\a \x01(\tR\x05payerB:B\tMyGaruSDKZ(github.com/mygaru/dcr-sdk/gen/base1;base\x92\x03\x02\b\x02b\beditionsp\xe8\a"
+	"\x05payer\x18\a \x01(\tR\x05payerJ\x04\b\x04\x10\x05B:B\tMyGaruSDKZ(github.com/mygaru/dcr-sdk/gen/base1;base\x92\x03\x02\b\x02b\beditionsp\xe8\a"
 
 var (
 	file_base_v1_rpc_report_proto_rawDescOnce sync.Once

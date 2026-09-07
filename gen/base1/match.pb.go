@@ -127,8 +127,8 @@ type Match_Rule struct {
 	//
 	// When left empty the SDK fills it in from the request-level payer, so a
 	// caller working for one client only never has to set it.
-	// Field 2 was vacated by an earlier change, so 4 is used rather than
-	// reusing a number an older client may still be sending.
+	// 4 is the first number this message has never used: 1 and 3 have been
+	// taken since it was introduced, and 2 was never assigned.
 	Payer         string `protobuf:"bytes,4,opt,name=payer" json:"payer,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

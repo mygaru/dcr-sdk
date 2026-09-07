@@ -20,6 +20,13 @@ package report;
 
 // A stream of events to be reported
 message ReportRequest {
+  // Field 4 was `repeated uint32 segment_ids` in the pre-rules shape of this
+  // message (commit dd7f42b, an ancestor of main), so it must never be reused:
+  // packed uint32 and string share wire type 2, which means an ancient client
+  // still sending segment_ids would have those bytes decoded as a payer instead
+  // of being rejected.
+  reserved 4;
+
   // payer is the UUID of the calling partner, in canonical text form
   // ("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"). It is REQUIRED.
   //
@@ -36,7 +43,7 @@ message ReportRequest {
   //
   // When left empty the SDK fills it in from the partner id of the deprecated
   // Configuration.JwtToken.
-  string payer = 4;
+  string payer = 5;
 
   // Tracking id for BE reporting
   bytes tracking_id = 1;
