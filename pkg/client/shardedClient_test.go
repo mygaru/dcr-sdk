@@ -3,14 +3,13 @@ package client
 import (
 	"errors"
 	"net"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/VictoriaMetrics/metrics"
 	"github.com/aradilov/fastrpc"
-	base "github.com/mygaru/dcr-sdk/gen/base1"
-	"github.com/mygaru/dcr-sdk/pkg/contract"
+	base "gitlab.mygaru.com/mygaru/dcr-sdk/gen/base1"
+	"gitlab.mygaru.com/mygaru/dcr-sdk/pkg/contract"
 )
 
 func TestNewClientNormalizesAddrs(t *testing.T) {
@@ -120,8 +119,8 @@ func TestDoUnaryIncrementsRequestMetric(t *testing.T) {
 			},
 		},
 	}
-	cl.connGen.Store(1)
-	atomic.StoreUint64(&cl.authedGen, 1)
+	cl.connDials.Store(1)
+	cl.authedDials.Store(1)
 
 	_, _, _ = cl.doUnary(testTargetRequest(), nil, contract.Target)
 	if got := requests.Get(); got != before+1 {

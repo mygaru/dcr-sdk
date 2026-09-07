@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-MODULE := github.com/mygaru/dcr-sdk
+MODULE := gitlab.mygaru.com/mygaru/dcr-sdk
 PROTO_DIR := base/v1
 PROTO_FILES := $(wildcard $(PROTO_DIR)/*.proto)
 

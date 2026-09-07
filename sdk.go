@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/mygaru/dcr-sdk/pkg/client"
 	"gitlab.adtelligent.com/awesome/mtls"
+	"gitlab.mygaru.com/mygaru/dcr-sdk/pkg/client"
 )
 
 // MTLSConfig contains certificate material and validation settings for an mTLS client.

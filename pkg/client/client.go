@@ -10,8 +10,8 @@ import (
 
 	"github.com/aradilov/fastrpc"
 	"github.com/google/uuid"
-	base "github.com/mygaru/dcr-sdk/gen/base1"
-	"github.com/mygaru/dcr-sdk/pkg/contract"
+	base "gitlab.mygaru.com/mygaru/dcr-sdk/gen/base1"
+	"gitlab.mygaru.com/mygaru/dcr-sdk/pkg/contract"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -34,12 +34,44 @@ type client struct {
 	// single connection RPC client
 	c *fastrpc.Client
 
-	connGen atomic.Uint64
-	mu      sync.Mutex
+	// connDials counts successfully established connections. It doubles as the
+	// identity of the current connection: the server binds the payer identity to
+	// the TCP connection during Auth, so an Auth is only valid for the dial
+	// generation it was performed on.
+	connDials atomic.Uint64
 
-	authedGen uint64
-	authId    uuid.UUID
-	serverID  uint16
+	// connCloses counts closed connections. The connection is live only while
+	// connDials > connCloses. Without this counter a dropped connection stays
+	// invisible to the SDK (connDials only moves on the next dial), so the first
+	// request after a disconnect skips Auth and is written by fastrpc to a fresh,
+	// unauthenticated connection, which the server rejects with UNAUTHORIZED
+	// "payer identity is missing".
+	connCloses atomic.Uint64
+
+	mu sync.Mutex
+
+	authedDials atomic.Uint64
+	authId      uuid.UUID
+	serverID    uint16
+}
+
+// onConnDialed is called from the fastrpc Dial hook once a connection is
+// established. It starts a new connection generation, which invalidates the
+// previous Auth.
+func (c *client) onConnDialed() {
+	c.connDials.Add(1)
+}
+
+// onConnClosed is called from trackedConn.Close before the socket is closed, so
+// the drop becomes visible to isAuthForCurrentConn before fastrpc re-dials.
+func (c *client) onConnClosed() {
+	c.connCloses.Add(1)
+}
+
+// invalidateAuth drops the authenticated-connection marker so that the next call
+// performs Auth again. Dial generations start at 1, so zero never matches.
+func (c *client) invalidateAuth() {
+	c.authedDials.Store(0)
 }
 
 func (c *client) ensureAuthForCurrentConn() error {
@@ -55,8 +87,7 @@ func (c *client) ensureAuthForCurrentConn() error {
 }
 
 func (c *client) ensureAuthForCurrentConnLocked() error {
-	gen := c.connGen.Load()
-	if gen > 0 && gen == atomic.LoadUint64(&c.authedGen) {
+	if c.isAuthForCurrentConn() {
 		return nil
 	}
 
@@ -94,9 +125,16 @@ func (c *client) ensureAuthForCurrentConnLocked() error {
 		return fmt.Errorf("auth is failed, err = parse uid from response is failed: %v", err)
 	}
 
-	atomic.StoreUint64(&c.authedGen, c.connGen.Load())
 	c.authId = uid
 	c.serverID = binary.LittleEndian.Uint16(buf[:2])
+
+	// Bind the Auth to the connection it was performed on. If that connection is
+	// already gone, stay unauthenticated: marking the client authenticated here
+	// would attribute this Auth to a future connection that never ran it.
+	dials := c.connDials.Load()
+	if dials > c.connCloses.Load() {
+		c.authedDials.Store(dials)
+	}
 
 	return nil
 }
@@ -128,8 +166,8 @@ func (c *client) ensureAuthForCurrentConnDeadline() error {
 }
 
 func (c *client) isAuthForCurrentConn() bool {
-	gen := c.connGen.Load()
-	return gen > 0 && gen == atomic.LoadUint64(&c.authedGen)
+	dials := c.connDials.Load()
+	return dials > c.connCloses.Load() && dials == c.authedDials.Load()
 }
 
 // GetServerID returns the identifier of the server currently associated with the client.
@@ -142,9 +180,9 @@ func (c *client) GetUUID() uuid.UUID {
 	return c.authId
 }
 
-// Reconnects returns the number of reconnections the client has performed by reading the connection generation counter.
+// Reconnects returns the number of connections the client has established.
 func (c *client) Reconnects() uint64 {
-	return c.connGen.Load()
+	return c.connDials.Load()
 }
 
 // doUnary sends a unary RPC request with a given proto message and request identifier.
@@ -171,24 +209,44 @@ func (c *client) Reconnects() uint64 {
 //     timeout currently applies to the auth/reconnect path only, not to the main
 //     request on an already authenticated connection.
 func (c *client) doUnary(req, resp proto.Message, reqn contract.RPCRegister) (proto.Message, base.RPCServerResponseCode, error) {
-	if !c.disableAuth {
-		if err := c.ensureAuthForCurrentConnDeadline(); err != nil {
-			if errors.Is(err, fastrpc.ErrTimeout) {
-				return nil, base.RPCServerResponseCode_NETWORK_ERROR, err
-			}
-			return nil, base.RPCServerResponseCode_UNAUTHORIZED, err
-		}
-	}
-
 	raw, err := proto.Marshal(req)
-	if 0 == len(raw) {
-		return nil, base.RPCServerResponseCode_UNKNOWN, fmt.Errorf("marshal request %s is failed: empty request", reqn)
-	}
-
 	if nil != err {
 		return nil, base.RPCServerResponseCode_UNKNOWN, fmt.Errorf("marshal request %s is failed: %+v", reqn, err)
 	}
 
+	if 0 == len(raw) {
+		return nil, base.RPCServerResponseCode_UNKNOWN, fmt.Errorf("marshal request %s is failed: empty request", reqn)
+	}
+
+	// The connection may still be replaced under us between the auth check and
+	// the actual write: fastrpc re-dials transparently and flushes whatever is
+	// already queued onto the new, unauthenticated connection. The server checks
+	// the payer identity before it does any work, so an UNAUTHORIZED response has
+	// no side effects and the request can be re-authenticated and sent once more.
+	for attempt := 0; ; attempt++ {
+		if !c.disableAuth {
+			if err = c.ensureAuthForCurrentConnDeadline(); err != nil {
+				if errors.Is(err, fastrpc.ErrTimeout) {
+					return nil, base.RPCServerResponseCode_NETWORK_ERROR, err
+				}
+				return nil, base.RPCServerResponseCode_UNAUTHORIZED, err
+			}
+		}
+
+		result, statusCode, err := c.send(raw, resp, reqn)
+		if statusCode == base.RPCServerResponseCode_UNAUTHORIZED && attempt == 0 && !c.disableAuth {
+			c.metricGroups[reqn].authRetry.Inc()
+			c.invalidateAuth()
+			continue
+		}
+
+		return result, statusCode, err
+	}
+}
+
+// send writes an already marshalled request to the current connection and
+// decodes the response into resp.
+func (c *client) send(raw []byte, resp proto.Message, reqn contract.RPCRegister) (proto.Message, base.RPCServerResponseCode, error) {
 	metricGroup := c.metricGroups[reqn]
 
 	st := time.Now()
@@ -203,7 +261,7 @@ func (c *client) doUnary(req, resp proto.Message, reqn contract.RPCRegister) (pr
 	rpcReq.Append(raw)
 
 	metricGroup.request.Inc()
-	err = c.c.DoDeadline(rpcReq, rpcResp, st.Add(c.maxRequestDuration))
+	err := c.c.DoDeadline(rpcReq, rpcResp, st.Add(c.maxRequestDuration))
 	metricGroup.duration.UpdateDuration(st)
 	if err != nil {
 		c.countError(reqn, err, rpcResp)
@@ -226,7 +284,6 @@ func (c *client) doUnary(req, resp proto.Message, reqn contract.RPCRegister) (pr
 	}
 	metricGroup.success.Inc()
 	return resp, statusCode, nil
-
 }
 
 // countError increments error-related metrics for the given request and logs unhandled errors with request and server details.

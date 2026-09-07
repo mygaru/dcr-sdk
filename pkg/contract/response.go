@@ -3,8 +3,9 @@ package contract
 import (
 	"bufio"
 	"fmt"
-	base "github.com/mygaru/dcr-sdk/gen/base1"
 	"sync"
+
+	base "gitlab.mygaru.com/mygaru/dcr-sdk/gen/base1"
 )
 
 // Response is a TLV response.

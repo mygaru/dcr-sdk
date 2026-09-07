@@ -10,10 +10,10 @@ import (
 
 	"github.com/aradilov/fastrpc"
 	"github.com/google/uuid"
-	base "github.com/mygaru/dcr-sdk/gen/base1"
-	"github.com/mygaru/dcr-sdk/internal/sdkutil"
-	"github.com/mygaru/dcr-sdk/pkg/contract"
-	"github.com/mygaru/dcr-sdk/pkg/serverauth"
+	base "gitlab.mygaru.com/mygaru/dcr-sdk/gen/base1"
+	"gitlab.mygaru.com/mygaru/dcr-sdk/internal/sdkutil"
+	"gitlab.mygaru.com/mygaru/dcr-sdk/pkg/contract"
+	"gitlab.mygaru.com/mygaru/dcr-sdk/pkg/serverauth"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -31,6 +31,11 @@ type Config struct {
 	TargetStatus base.RPCServerResponseCode
 	// ReportBuffer controls how many Report requests are retained for tests. Defaults to 8.
 	ReportBuffer int
+	// DropConnAfterRequest closes the connection shortly after every successful
+	// Target/Report response. It emulates the connection churn a real client sees
+	// (HAProxy idle timeout, DNS rebalance, node restart) and exercises the
+	// SDK's per-connection re-authentication.
+	DropConnAfterRequest bool
 }
 
 // Server is an in-process test-cloud RPC server.
@@ -41,6 +46,29 @@ type Server struct {
 	done    chan error
 	reports chan *base.ReportRequest
 	counter atomic.Uint64
+
+	// unauthorized counts Target/Report requests that arrived on a connection
+	// that never ran contract.Auth - the test-cloud equivalent of the cloud's
+	// "payer identity is missing".
+	unauthorized atomic.Uint64
+}
+
+// Unauthorized returns the number of Target/Report requests received on
+// unauthenticated connections.
+func (s *Server) Unauthorized() uint64 {
+	return s.unauthorized.Load()
+}
+
+// dropConn closes conn after a short delay, emulating an idle timeout or a
+// load-balancer reset once the response has been flushed.
+func (s *Server) dropConn(conn net.Conn) {
+	if !s.cfg.DropConnAfterRequest {
+		return
+	}
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		_ = conn.Close()
+	}()
 }
 
 // Start starts a test-cloud RPC server in a goroutine.
@@ -206,9 +234,11 @@ func (s *Server) handleAuth(ctx *contract.RequestCtx) {
 
 func (s *Server) handleTarget(ctx *contract.RequestCtx) {
 	if _, ok := serverauth.GetUUID(ctx.Conn()); !ok {
-		writeError(ctx, base.RPCServerResponseCode_UNAUTHORIZED, fmt.Errorf("unauthorized"))
+		s.unauthorized.Add(1)
+		writeError(ctx, base.RPCServerResponseCode_UNAUTHORIZED, fmt.Errorf("payer identity is missing"))
 		return
 	}
+	defer s.dropConn(ctx.Conn())
 
 	req := &base.TargetRequest{}
 	if err := proto.Unmarshal(ctx.Request.Value(), req); err != nil {
@@ -238,9 +268,11 @@ func (s *Server) handleTarget(ctx *contract.RequestCtx) {
 
 func (s *Server) handleReport(ctx *contract.RequestCtx) {
 	if _, ok := serverauth.GetUUID(ctx.Conn()); !ok {
-		writeError(ctx, base.RPCServerResponseCode_UNAUTHORIZED, fmt.Errorf("unauthorized"))
+		s.unauthorized.Add(1)
+		writeError(ctx, base.RPCServerResponseCode_UNAUTHORIZED, fmt.Errorf("payer identity is missing"))
 		return
 	}
+	defer s.dropConn(ctx.Conn())
 
 	req := &base.ReportRequest{}
 	if err := proto.Unmarshal(ctx.Request.Value(), req); err != nil {

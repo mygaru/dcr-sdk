@@ -6,7 +6,7 @@ import "base/v1/user.proto";
 import "base/v1/common.proto";
 
 option java_outer_classname = "myGaruSDK";
-option go_package = "github.com/mygaru/dcr-sdk/gen/base1;base";
+option go_package = "gitlab.mygaru.com/mygaru/dcr-sdk/gen/base1;base";
 
 option features.field_presence = IMPLICIT;
 

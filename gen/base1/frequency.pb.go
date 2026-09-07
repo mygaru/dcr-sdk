@@ -7,11 +7,12 @@
 package base
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -386,7 +387,7 @@ const file_base_v1_frequency_proto_rawDesc = "" +
 	"\rSTATUS_PASSED\x10\x02\x12\x18\n" +
 	"\x14STATUS_ACCESS_DENIED\x10\x03\x12\x1e\n" +
 	"\x1aSTATUS_SERVICE_UNAVAILABLE\x10\x04\x12\x1c\n" +
-	"\x18STATUS_LIMIT_ID_MISMATCH\x10\x05B:B\tMyGaruSDKZ(github.com/mygaru/dcr-sdk/gen/base1;base\x92\x03\x02\b\x02b\beditionsp\xe8\a"
+	"\x18STATUS_LIMIT_ID_MISMATCH\x10\x05BAB\tMyGaruSDKZ\x2fgitlab.mygaru.com/mygaru/dcr-sdk/gen/base1;base\x92\x03\x02\b\x02b\beditionsp\xe8\a"
 
 var (
 	file_base_v1_frequency_proto_rawDescOnce sync.Once

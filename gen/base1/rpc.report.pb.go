@@ -7,11 +7,12 @@
 package base
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -190,7 +191,7 @@ const file_base_v1_rpc_report_proto_rawDesc = "" +
 	"segmentIds\x12\x1c\n" +
 	"\tfrequency\x18\x04 \x03(\x04R\tfrequency\x12\x0e\n" +
 	"\x02LI\x18\x05 \x01(\rR\x02LI\x12\x14\n" +
-	"\x05CmpID\x18\x06 \x01(\rR\x05CmpIDB:B\tMyGaruSDKZ(github.com/mygaru/dcr-sdk/gen/base1;base\x92\x03\x02\b\x02b\beditionsp\xe8\a"
+	"\x05CmpID\x18\x06 \x01(\rR\x05CmpIDBAB\tMyGaruSDKZ\x2fgitlab.mygaru.com/mygaru/dcr-sdk/gen/base1;base\x92\x03\x02\b\x02b\beditionsp\xe8\a"
 
 var (
 	file_base_v1_rpc_report_proto_rawDescOnce sync.Once

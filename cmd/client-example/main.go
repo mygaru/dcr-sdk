@@ -10,9 +10,9 @@ import (
 	"os"
 	"time"
 
-	dcr "github.com/mygaru/dcr-sdk"
-	base "github.com/mygaru/dcr-sdk/gen/base1"
-	"github.com/mygaru/dcr-sdk/pkg/client"
+	dcr "github.com/mygaru/dcr-sdk-pub"
+	base "github.com/mygaru/dcr-sdk-pub/gen/base1"
+	"github.com/mygaru/dcr-sdk-pub/pkg/client"
 )
 
 //

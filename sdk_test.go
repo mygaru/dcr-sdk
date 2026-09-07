@@ -15,12 +15,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	base "github.com/mygaru/dcr-sdk/gen/base1"
-	"github.com/mygaru/dcr-sdk/internal/testcloud"
-	"github.com/mygaru/dcr-sdk/pkg/serverauth"
 	"gitlab.adtelligent.com/awesome/mtls"
+	base "gitlab.mygaru.com/mygaru/dcr-sdk/gen/base1"
+	"gitlab.mygaru.com/mygaru/dcr-sdk/internal/testcloud"
+	"gitlab.mygaru.com/mygaru/dcr-sdk/pkg/serverauth"
 
-	"github.com/mygaru/dcr-sdk/pkg/client"
+	"gitlab.mygaru.com/mygaru/dcr-sdk/pkg/client"
 )
 
 const MaximumSimultaneousConnections = 4
@@ -377,4 +377,32 @@ func newTestServerTLSCertificate(ca *mtls.Certificate) (tls.Certificate, error) 
 		PrivateKey:  key,
 		Leaf:        leaf,
 	}, nil
+}
+
+// TestTargetSurvivesConnectionChurn covers the regression where the server's
+// payer identity - which lives on the TCP connection only - was lost on
+// reconnect while the SDK still believed the connection was authenticated. The
+// first Target/Report after every disconnect was then written to a fresh,
+// unauthenticated connection and rejected with UNAUTHORIZED "payer identity is
+// missing".
+func TestTargetSurvivesConnectionChurn(t *testing.T) {
+	server := startTestCloud(t, testcloud.Config{ServerID: 1024, DropConnAfterRequest: true})
+	rpc := newTestClient(server.Addr(), 1)
+
+	const requests = 12
+	for i := 0; i < requests; i++ {
+		_, statusCode, err := rpc.Target(testTargetRequest())
+		if err != nil {
+			t.Fatalf("request %d failed with %s: %v", i, statusCode, err)
+		}
+		// Let the server-side drop land before the next request.
+		time.Sleep(60 * time.Millisecond)
+	}
+
+	if got := server.Unauthorized(); got != 0 {
+		t.Fatalf("expected no unauthenticated requests to reach the server, got %d", got)
+	}
+	if got := rpc.Reconnects(); got < requests {
+		t.Fatalf("expected at least %d reconnects to be exercised, got %d", requests, got)
+	}
 }

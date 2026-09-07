@@ -3,7 +3,7 @@ edition = "2023";
 import "base/v1/common.proto";
 
 option java_outer_classname = "MyGaruSDK"; // Renamed class for consistent capitalization
-option go_package = "github.com/mygaru/dcr-sdk/gen/base1;base"; // Updated go_package path
+option go_package = "gitlab.mygaru.com/mygaru/dcr-sdk/gen/base1;base"; // Updated go_package path
 
 option features.field_presence = IMPLICIT;
 

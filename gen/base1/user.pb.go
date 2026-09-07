@@ -7,11 +7,12 @@
 package base
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -216,7 +217,7 @@ const file_base_v1_user_proto_rawDesc = "" +
 	"\vPARTNER_UID\x10\x02\x12\r\n" +
 	"\tDEVICE_ID\x10\x03\x12\x10\n" +
 	"\fEXTERNAL_UID\x10\x04\x12\x17\n" +
-	"\x13DEVICE_ID_ENCRYPTED\x10\x05B:B\tmyGaruSDKZ(github.com/mygaru/dcr-sdk/gen/base1;base\x92\x03\x02\b\x02b\beditionsp\xe8\a"
+	"\x13DEVICE_ID_ENCRYPTED\x10\x05BAB\tmyGaruSDKZ\x2fgitlab.mygaru.com/mygaru/dcr-sdk/gen/base1;base\x92\x03\x02\b\x02b\beditionsp\xe8\a"
 
 var (
 	file_base_v1_user_proto_rawDescOnce sync.Once

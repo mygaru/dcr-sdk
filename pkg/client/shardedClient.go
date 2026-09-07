@@ -10,9 +10,9 @@ import (
 
 	"github.com/aradilov/fastrpc"
 	"github.com/aradilov/uniqid"
-	base "github.com/mygaru/dcr-sdk/gen/base1"
-	"github.com/mygaru/dcr-sdk/internal/sdkutil"
-	"github.com/mygaru/dcr-sdk/pkg/contract"
+	base "gitlab.mygaru.com/mygaru/dcr-sdk/gen/base1"
+	"gitlab.mygaru.com/mygaru/dcr-sdk/internal/sdkutil"
+	"gitlab.mygaru.com/mygaru/dcr-sdk/pkg/contract"
 )
 
 const defaultCloudAddr = "cloud.mygaru.com:7937"
@@ -231,7 +231,7 @@ func NewClient(cfg *Configuration, tlsConfig *tls.Config) *ShardedClient {
 				if err != nil {
 					return nil, err
 				}
-				rpcRef.connGen.Add(1)
+				rpcRef.onConnDialed()
 				return conn, nil
 			}
 

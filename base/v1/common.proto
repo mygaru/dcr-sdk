@@ -1,7 +1,7 @@
 edition = "2023";
 
 option java_outer_classname = "MyGaruSDK"; // Standardized PascalCase for outer classname
-option go_package = "github.com/mygaru/dcr-sdk/gen/base1;base";
+option go_package = "gitlab.mygaru.com/mygaru/dcr-sdk/gen/base1;base";
 
 package common;
 
