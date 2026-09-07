@@ -34,11 +34,6 @@ type client struct {
 	// connDials counts successfully established connections, i.e. the number of
 	// (re)connects this client has performed.
 	connDials atomic.Uint64
-
-	// serverID is the id of the cloud node this client last talked to, decoded
-	// from the tracking id of a Target response. It is used by ShardedClient to
-	// route a Report back to the node that holds the matching request context.
-	serverID uint16
 }
 
 // onConnDialed is called from the fastrpc Dial hook once a connection is

@@ -2,7 +2,7 @@
 
 `dcr-sdk` is a Go client SDK for communicating with the DCR RPC service.
 
-It provides a lightweight RPC client built on top of a custom binary protocol and a sharded transport layer for high-throughput request routing.
+It provides a lightweight RPC client built on top of a custom binary protocol and a pooled transport layer for high-throughput requests.
 
 ## Features
 
@@ -148,6 +148,19 @@ A rule that names a payer **keeps** it - the fallback never overwrites it,
 otherwise a mixed request would silently collapse onto one client. A rule naming
 an unknown or malformed partner fails the whole request rather than leaving part
 of it billed.
+
+### Reports are not routed by the client
+
+A report is sent over any open connection. The origin node id is encoded in the
+tracking id and the cloud forwards a report that lands on another node to the one
+holding the matching request context, so the client does not need to know - and
+must not guess - which node that is.
+
+Earlier versions tried to pick the connection themselves from a per-address node
+id. Behind a load balancer one address serves several nodes, so that id could
+never represent them: most reports were refused locally with
+`unknown server for tracking id` even though they were perfectly valid.
+`IsValidTrackingID` is now only a format check for the same reason.
 
 ### Only a participant may report
 

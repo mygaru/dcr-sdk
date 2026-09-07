@@ -81,12 +81,15 @@ type ShardedClient struct {
 	legacyPayer uuid.UUID
 }
 
-// clientsGroup is a structure that holds a group of client instances for managing sharded connections to the signle server.
+// clientsGroup holds the connections opened to one address from Addrs.
+//
+// It carries no node identity. Behind a load balancer a single address serves
+// several cloud nodes, so one id per group could never represent them; the cloud
+// routes a report to the node that holds its request context by itself.
 type clientsGroup struct {
 	// roundRobin is a counter used for load balancing to distribute requests evenly across client connections.
 	roundRobin uint64
 	clients    []*client
-	id         atomic.Uint32
 }
 
 // getClient returns a pointer to the next client in the clientsGroup's clients list using a round-robin load-balancing strategy.
@@ -118,16 +121,7 @@ func (sc *ShardedClient) Target(req *base.TargetRequest) (*base.TargetResponse, 
 	if nil != err {
 		return nil, statusCode, err
 	}
-	targetResp := res.(*base.TargetResponse)
-	serverID := cl.serverID
-	if serverID == 0 {
-		serverID = uniqid.GetServerID(targetResp.TrackingId)
-		cl.serverID = serverID
-	}
-	if serverID > 0 {
-		shard.id.Store(uint32(serverID))
-	}
-	return targetResp, statusCode, nil
+	return res.(*base.TargetResponse), statusCode, nil
 }
 
 // Report is used by a third-party platform to report that a specific event has occurred.
@@ -150,12 +144,11 @@ func (sc *ShardedClient) Report(req *base.ReportRequest) (base.RPCServerResponse
 		return base.RPCServerResponseCode_INVALID_REQUEST, err
 	}
 
-	shard := sc.lookupGroup(uniqid.GetServerID(req.TrackingId))
-	if nil == shard {
-		return base.RPCServerResponseCode_UNKNOWN, fmt.Errorf("unknown server for tracking id: %q", req.TrackingId)
-	}
-
-	_, statusCode, err := shard.getClient().doUnary(req, nil, contract.Report)
+	// Any open connection will do. The origin node id is encoded in the tracking
+	// id, and the cloud forwards a report that lands elsewhere to the node that
+	// holds the matching request context - so the client does not need to know
+	// which node that is, and must not refuse the report for not knowing.
+	_, statusCode, err := sc.getGroup().getClient().doUnary(req, nil, contract.Report)
 	return statusCode, err
 }
 
@@ -210,26 +203,15 @@ func applyReportRulePayers(rules []*base.ReportRequest_Rule, requestPayer uuid.U
 	return nil
 }
 
-// IsValidTrackingID checks if the provided tracking ID is valid by ensuring it is not nil and maps to a valid shard.
+// IsValidTrackingID reports whether trackingId is well formed, i.e. whether it
+// names an origin node at all.
+//
+// It no longer says anything about routing: a report is sent over any open
+// connection and the cloud forwards it to the origin node. It used to answer
+// "does this client hold a connection to the node that owns this tracking id",
+// which returned false for perfectly valid tracking ids.
 func (sc *ShardedClient) IsValidTrackingID(trackingId []byte) bool {
-	if nil == trackingId {
-		return false
-	}
-	shard := sc.lookupGroup(uniqid.GetServerID(trackingId))
-	return nil != shard
-}
-
-func (sc *ShardedClient) lookupGroup(serverID uint16) *clientsGroup {
-	var shard *clientsGroup
-	for i := 0; i < len(sc.clients); i++ {
-		shard = sc.clients[i]
-		shardID := uint16(shard.id.Load())
-		if shardID > 0 && shardID == serverID {
-			return shard
-		}
-	}
-
-	return nil
+	return uniqid.GetServerID(trackingId) > 0
 }
 
 // getGroup selects a clientsGroup instance from the sharded clients list using a round-robin load-balancing strategy.

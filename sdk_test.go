@@ -45,7 +45,7 @@ func newTestClient(addr string, maximumSimultaneousConnections int) *client.Shar
 	})
 }
 
-func TestTargetReturnsTrackingIDAndReportRoutesByIt(t *testing.T) {
+func TestTargetReturnsTrackingIDAndReportUsesIt(t *testing.T) {
 	server := startTestCloud(t, testcloud.Config{ServerID: 1024})
 	rpc := newTestClient(server.Addr(), 2)
 
@@ -289,7 +289,7 @@ func TestTargetReturnsServerStatusError(t *testing.T) {
 	}
 }
 
-func TestReportRejectsMissingAndUnknownTrackingID(t *testing.T) {
+func TestReportRejectsMissingTrackingID(t *testing.T) {
 	rpc := getTestClient(t)
 
 	sc, err := rpc.Report(&base.ReportRequest{Payer: testPayer.String()})
@@ -299,13 +299,48 @@ func TestReportRejectsMissingAndUnknownTrackingID(t *testing.T) {
 	if sc != base.RPCServerResponseCode_UNKNOWN {
 		t.Fatalf("expected status code to be %d, got %d", base.RPCServerResponseCode_UNKNOWN, sc)
 	}
+}
 
-	sc, err = rpc.Report(&base.ReportRequest{Payer: testPayer.String(), TrackingId: []byte("FFFF000000000001")})
-	if nil == err {
-		t.Fatalf("expected unknown server error")
+// TestReportSendsUnknownOriginNodeAnyway covers the routing that was removed: a
+// tracking id from a node this client holds no connection to used to fail
+// locally with "unknown server for tracking id" and never leave the process.
+// The cloud forwards such a report to its origin node, so the client must send
+// it and let the cloud answer.
+func TestReportSendsUnknownOriginNodeAnyway(t *testing.T) {
+	server := startTestCloud(t, testcloud.Config{ServerID: 1024})
+	rpc := newTestClient(server.Addr(), 1)
+
+	// FFFF is not this server's id, and the client never talked to that node.
+	if _, err := rpc.Report(&base.ReportRequest{
+		Payer:      testPayer.String(),
+		TrackingId: []byte("FFFF000000000001"),
+		Event:      base.EventType_EVENT_TYPE_IMPRESSION,
+		Rules:      []*base.ReportRequest_Rule{{EventsCount: 1}},
+	}); err != nil {
+		t.Fatalf("expected the report to be sent, got %v", err)
 	}
-	if sc != base.RPCServerResponseCode_UNKNOWN {
-		t.Fatalf("expected status code to be %d, got %d", base.RPCServerResponseCode_UNKNOWN, sc)
+
+	if got := nextReport(t, server); string(got.GetTrackingId()) != "FFFF000000000001" {
+		t.Fatalf("report tracking id = %q, want it to reach the server", got.GetTrackingId())
+	}
+}
+
+// TestIsValidTrackingIDChecksFormatOnly pins the narrowed contract: it answers
+// "is this well formed", not "can this client route it".
+func TestIsValidTrackingIDChecksFormatOnly(t *testing.T) {
+	rpc := newTestClient("127.0.0.1:1", 1)
+
+	if !rpc.IsValidTrackingID([]byte("FFFF000000000001")) {
+		t.Error("a well-formed tracking id from an unknown node must be valid")
+	}
+	if rpc.IsValidTrackingID(nil) {
+		t.Error("nil must not be valid")
+	}
+	if rpc.IsValidTrackingID([]byte("short")) {
+		t.Error("a truncated tracking id must not be valid")
+	}
+	if rpc.IsValidTrackingID([]byte("ZZZZ000000000001")) {
+		t.Error("a non-hex origin id must not be valid")
 	}
 }
 
