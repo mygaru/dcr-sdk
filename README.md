@@ -107,6 +107,68 @@ The root package exposes two constructors:
 - `NewWithTLS(cfg, tlsConfig)` — creates a client for production mTLS communication
 - **when certificates handling (GetClientCertificate) will be implemented, this constructor can be removed from the codebase** ~~`NewWithMTLS(cfg, mtlsConfig)` — creates a client from PEM-encoded mTLS certificate material~~
 
+## Payer identity
+
+Two levels, and they mean different things.
+
+**`req.Payer` — who is calling.** Required on both `TargetRequest` and
+`ReportRequest`. It resolves the user identifiers, owns the tracking id that
+`Target` returns, pays for the OTP decryption, and is the only partner allowed to
+report against its own tracking id. When left empty the SDK fills it in from
+`partner.id` of the deprecated `Configuration.JwtToken`; if that is unusable too
+the call fails locally with `client.ErrorPayerRequired` and `INVALID_REQUEST` -
+nothing is sent.
+
+**`rule.Payer` — who is billed.** Optional on every `Match.Rule` and every
+`ReportRequest.Rule`. Segment access is evaluated against it, and touches are
+billed to it, so one request can cover several clients. A rule that leaves it
+empty inherits `req.Payer`, so a caller working for a single client never sets
+it.
+
+```go
+resp, status, err := cli.Target(&base.TargetRequest{
+    Payer: platform.String(),               // who is calling
+    Uids:  []*base.UID{{Id: deviceID, Type: base.UID_DEVICE_ID}},
+    Match: []*base.Match_Rule{
+        {TrafficType: ..., SegmentIds: []uint32{1}, Payer: clientA.String()},
+        {TrafficType: ..., SegmentIds: []uint32{2}, Payer: clientB.String()},
+        {TrafficType: ..., SegmentIds: []uint32{3}},   // inherits platform
+    },
+})
+
+status, err = cli.Report(&base.ReportRequest{
+    Payer:      platform.String(),          // must own the tracking id
+    TrackingId: resp.GetTrackingId(),
+    Event:      base.EventType_EVENT_TYPE_IMPRESSION,
+    Rules: []*base.ReportRequest_Rule{
+        {TrafficType: ..., EventsCount: 1, SegmentIds: []uint32{1}, Payer: clientA.String()},
+        {TrafficType: ..., EventsCount: 2, SegmentIds: []uint32{2}, Payer: clientB.String()},
+    },
+})
+```
+
+A rule that names a payer **keeps** it - stamping `req.Payer` never overwrites
+it, otherwise a mixed request would silently collapse onto one client. A rule
+naming an unknown or malformed partner fails the whole request rather than
+leaving part of it billed.
+
+### Why it replaced connection authentication
+
+The identity used to be established once per TCP connection with a
+`contract.Auth` handshake and then kept in the server's memory for that
+connection. fastrpc re-dials transparently, so a connection could be replaced
+between the SDK's auth check and the actual write; the request then landed on a
+fresh, unauthenticated connection and came back as
+`UNAUTHORIZED: payer identity is missing` even though it was valid. Every
+reconnect - idle timeout, load-balancer reset, DNS rebalance - produced such
+failures.
+
+A request that carries its payer cannot lose it to a reconnect, so the SDK no
+longer authenticates connections at all and `Configuration.DisableAuth` is a
+no-op. Transport-level authentication moves to mTLS per platform.
+
+---
+
 ## Production setup
 Production connections require **mTLS**. Initially, client certificate is provided by myGaru using out of band secure channels. Certificate renewal is automated using an example in `cmd/client-example/main.go`.
 
@@ -122,7 +184,10 @@ type Configuration struct {
     // By default: cloud.mygaru.com:7937
     Addrs string
 
-    // JWT token used for authentication.
+    // Deprecated: JWT token that used to authenticate the connection.
+    // Connection authentication has been removed - pass the payer to
+    // Target/Report instead. Still read once, at construction, to recover
+    // partner.id as a fallback payer.
     JwtToken []byte
 
     //Maximum allowed duration for a request.

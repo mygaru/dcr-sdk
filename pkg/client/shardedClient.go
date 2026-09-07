@@ -10,6 +10,7 @@ import (
 
 	"github.com/aradilov/fastrpc"
 	"github.com/aradilov/uniqid"
+	"github.com/google/uuid"
 	base "github.com/mygaru/dcr-sdk/gen/base1"
 	"github.com/mygaru/dcr-sdk/internal/sdkutil"
 	"github.com/mygaru/dcr-sdk/pkg/contract"
@@ -21,11 +22,19 @@ type Configuration struct {
 	// Addrs specifies the comma-separated list of server addresses used for sharding the client connections.
 	Addrs string
 
-	// Client's JWT token for authentication.
+	// JwtToken was the client's JWT for the connection-level contract.Auth
+	// handshake.
+	//
+	// Deprecated: the SDK no longer authenticates connections. The token is now
+	// only read once, at construction time, to recover partner.id as the default
+	// payer for calls that pass uuid.Nil. Pass the payer to Target/Report
+	// explicitly and stop setting this field.
 	JwtToken []byte
 
-	// DisableAuth skips the legacy contract.Auth request.
-	// It is enabled by the SDK mTLS constructor because the client identity is established during TLS handshake.
+	// DisableAuth skipped the legacy contract.Auth request.
+	//
+	// Deprecated: no-op. Connection authentication has been removed, so there is
+	// nothing left to disable. Kept so existing configurations still compile.
 	DisableAuth bool
 
 	// MaxRequestDuration specifies the maximum duration allowed for each request to prevent excessive timeouts or delays.
@@ -65,6 +74,11 @@ type ShardedClient struct {
 
 	// clients is a slice of pointers to client instances used for managing connections to multiple servers for sharding.
 	clients []*clientsGroup
+
+	// legacyPayer is partner.id recovered from the deprecated
+	// Configuration.JwtToken at construction time. It is the last-resort default
+	// for calls that pass uuid.Nil and leave the request payer empty.
+	legacyPayer uuid.UUID
 }
 
 // clientsGroup is a structure that holds a group of client instances for managing sharded connections to the signle server.
@@ -88,7 +102,19 @@ func (sh *clientsGroup) getClient() *client {
 // Check frequency capping compliance by key;
 // Obtain identification accuracy to determine the validity and reliability of the response.
 // For more details, see here: [LINK]
+//
+// req.Payer is the caller's own identity and is required; when empty it falls
+// back to the partner id of the deprecated Configuration.JwtToken. Each match
+// rule may name the client it is billed to in req.Match[i].Payer; rules that
+// leave it empty inherit req.Payer.
 func (sc *ShardedClient) Target(req *base.TargetRequest) (*base.TargetResponse, base.RPCServerResponseCode, error) {
+	if err := sc.applyPayers(req.GetPayer(), func(payer uuid.UUID) error {
+		req.Payer = payer.String()
+		return applyMatchRulePayers(req.GetMatch(), payer)
+	}); err != nil {
+		return nil, base.RPCServerResponseCode_INVALID_REQUEST, err
+	}
+
 	shard := sc.getGroup()
 	cl := shard.getClient()
 	res, statusCode, err := cl.doUnary(req, &base.TargetResponse{}, contract.Target)
@@ -110,10 +136,23 @@ func (sc *ShardedClient) Target(req *base.TargetRequest) (*base.TargetResponse, 
 // Report is used by a third-party platform to report that a specific event has occurred.
 // This mechanism is used to record statistical data and perform settlements between system users as part of the third-party billing strategy.
 // For more details, see here: [LINK]
+//
+// req.Payer is the caller's own identity and is required; when empty it falls
+// back to the partner id of the deprecated Configuration.JwtToken. Each rule may
+// name the client it is billed to in req.Rules[i].Payer; rules that leave it
+// empty inherit req.Payer.
 func (sc *ShardedClient) Report(req *base.ReportRequest) (base.RPCServerResponseCode, error) {
 	if nil == req.TrackingId {
 		return base.RPCServerResponseCode_UNKNOWN, fmt.Errorf("tracking id is required")
 	}
+
+	if err := sc.applyPayers(req.GetPayer(), func(payer uuid.UUID) error {
+		req.Payer = payer.String()
+		return applyReportRulePayers(req.GetRules(), payer)
+	}); err != nil {
+		return base.RPCServerResponseCode_INVALID_REQUEST, err
+	}
+
 	shard := sc.lookupGroup(uniqid.GetServerID(req.TrackingId))
 	if nil == shard {
 		return base.RPCServerResponseCode_UNKNOWN, fmt.Errorf("unknown server for tracking id: %q", req.TrackingId)
@@ -121,6 +160,54 @@ func (sc *ShardedClient) Report(req *base.ReportRequest) (base.RPCServerResponse
 
 	_, statusCode, err := shard.getClient().doUnary(req, nil, contract.Report)
 	return statusCode, err
+}
+
+// applyPayers resolves the request-level payer and hands it to stamp, which
+// writes it onto the request and onto every rule that names no payer of its own.
+//
+// The rule sets themselves are not validated here: rule counts, traffic types
+// and event counts are the cloud's contract, and duplicating them would only
+// change which error a caller sees.
+func (sc *ShardedClient) applyPayers(requestPayer string, stamp func(uuid.UUID) error) error {
+	payer, err := resolveRequestPayer(requestPayer, sc.legacyPayer)
+	if err != nil {
+		return err
+	}
+	return stamp(payer)
+}
+
+// applyMatchRulePayers stamps the billed client onto every Target match rule.
+func applyMatchRulePayers(rules []*base.Match_Rule, requestPayer uuid.UUID) error {
+	for i, rule := range rules {
+		if rule == nil {
+			return fmt.Errorf("match rule %d must not be nil", i)
+		}
+
+		resolved, err := resolveRulePayer(rule.GetPayer(), requestPayer)
+		if err != nil {
+			return fmt.Errorf("match rule %d: %w", i, err)
+		}
+		rule.Payer = resolved.String()
+	}
+
+	return nil
+}
+
+// applyReportRulePayers stamps the billed client onto every report rule.
+func applyReportRulePayers(rules []*base.ReportRequest_Rule, requestPayer uuid.UUID) error {
+	for i, rule := range rules {
+		if rule == nil {
+			return fmt.Errorf("report rule %d must not be nil", i)
+		}
+
+		resolved, err := resolveRulePayer(rule.GetPayer(), requestPayer)
+		if err != nil {
+			return fmt.Errorf("report rule %d: %w", i, err)
+		}
+		rule.Payer = resolved.String()
+	}
+
+	return nil
 }
 
 // IsValidTrackingID checks if the provided tracking ID is valid by ensuring it is not nil and maps to a valid shard.
@@ -189,7 +276,10 @@ const (
 func NewClient(cfg *Configuration, tlsConfig *tls.Config) *ShardedClient {
 	cfg = normalizeConfiguration(cfg)
 
-	sc := &ShardedClient{Configuration: *cfg}
+	sc := &ShardedClient{
+		Configuration: *cfg,
+		legacyPayer:   payerFromJwtToken(cfg.JwtToken),
+	}
 
 	for _, shardAddr := range strings.Split(cfg.Addrs, ",") {
 		shardAddr = strings.TrimSpace(shardAddr)
@@ -205,8 +295,6 @@ func NewClient(cfg *Configuration, tlsConfig *tls.Config) *ShardedClient {
 			rpc := &client{
 				maxRequestDuration: cfg.MaxRequestDuration,
 				metricGroups:       metrics,
-				JwtToken:           cfg.JwtToken,
-				disableAuth:        cfg.DisableAuth,
 				c: &fastrpc.Client{
 					SniffHeader:     sdkutil.SniffHeader,
 					ProtocolVersion: sdkutil.ProtocolVersion,

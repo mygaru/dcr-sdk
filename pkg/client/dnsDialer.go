@@ -229,12 +229,6 @@ func (c *trackedConn) Close() error {
 	var err error
 	c.once.Do(func() {
 		c.dialer.remove(c)
-		if c.owner != nil {
-			// Report the drop before closing the socket: the payer identity the
-			// server bound to this connection during Auth dies with it, so the
-			// owner must not treat itself as authenticated any more.
-			c.owner.onConnClosed()
-		}
 		err = c.Conn.Close()
 	})
 	return err

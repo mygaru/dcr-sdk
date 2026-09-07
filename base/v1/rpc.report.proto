@@ -20,6 +20,24 @@ package report;
 
 // A stream of events to be reported
 message ReportRequest {
+  // payer is the UUID of the calling partner, in canonical text form
+  // ("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"). It is REQUIRED.
+  //
+  // This is the caller's own identity, not a billing target: it resolves the
+  // user identifiers, owns the tracking id that Target returns, and pays for the
+  // OTP decryption. The partner billed for a segment check or a touch is named
+  // per rule instead, so one request can cover several clients.
+  //
+  // It also replaces the per-connection contract.Auth handshake: the identity
+  // used to be bound to the TCP connection, so any reconnect between the auth
+  // check and the write produced an UNAUTHORIZED "payer identity is missing" for
+  // a request that was otherwise valid. A request that carries its payer cannot
+  // lose it to a reconnect.
+  //
+  // When left empty the SDK fills it in from the partner id of the deprecated
+  // Configuration.JwtToken.
+  string payer = 4;
+
   // Tracking id for BE reporting
   bytes tracking_id = 1;
 
@@ -47,7 +65,16 @@ message ReportRequest {
     // Adv Campaign ID
     uint32 CmpID = 6;
 
-
+    // payer is the UUID of the partner billed for this rule, in canonical text
+    // form ("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx").
+    //
+    // It sits on the rule so that a single request can cover segments belonging
+    // to several different clients - a platform acting for its own clients bills
+    // each of them in one call. Segment access is evaluated against this payer.
+    //
+    // When left empty the SDK fills it in from the request-level payer, so a
+    // caller working for one client only never has to set it.
+    string payer = 7;
   }
 
 }

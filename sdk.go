@@ -51,6 +51,8 @@ func NewWithMTLS(cfg *client.Configuration, mtlsCfg MTLSConfig) (*client.Sharded
 	if cfg != nil {
 		*cfgCopy = *cfg
 	}
+	// DisableAuth is a no-op since connection authentication was removed; it is
+	// still set so a downgrade to an older SDK keeps behaving the same way.
 	cfgCopy.DisableAuth = true
 	return NewWithTLS(cfgCopy, tlsConfig), nil
 }

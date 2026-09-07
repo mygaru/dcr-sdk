@@ -23,6 +23,23 @@ const (
 
 type TargetRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
+	// payer is the UUID of the calling partner, in canonical text form
+	// ("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"). It is REQUIRED.
+	//
+	// This is the caller's own identity, not a billing target: it resolves the
+	// user identifiers, owns the tracking id that Target returns, and pays for the
+	// OTP decryption. The partner billed for a segment check or a touch is named
+	// per rule instead, so one request can cover several clients.
+	//
+	// It also replaces the per-connection contract.Auth handshake: the identity
+	// used to be bound to the TCP connection, so any reconnect between the auth
+	// check and the write produced an UNAUTHORIZED "payer identity is missing" for
+	// a request that was otherwise valid. A request that carries its payer cannot
+	// lose it to a reconnect.
+	//
+	// When left empty the SDK fills it in from the partner id of the deprecated
+	// Configuration.JwtToken.
+	Payer string `protobuf:"bytes,7,opt,name=payer" json:"payer,omitempty"`
 	// List of user identifiers currently available.
 	Uids []*UID `protobuf:"bytes,1,rep,name=uids" json:"uids,omitempty"`
 	// Rules for private frequency capping validation.
@@ -66,6 +83,13 @@ func (x *TargetRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use TargetRequest.ProtoReflect.Descriptor instead.
 func (*TargetRequest) Descriptor() ([]byte, []int) {
 	return file_base_v1_rpc_target_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *TargetRequest) GetPayer() string {
+	if x != nil {
+		return x.Payer
+	}
+	return ""
 }
 
 func (x *TargetRequest) GetUids() []*UID {
@@ -257,8 +281,9 @@ var File_base_v1_rpc_target_proto protoreflect.FileDescriptor
 
 const file_base_v1_rpc_target_proto_rawDesc = "" +
 	"\n" +
-	"\x18base/v1/rpc.target.proto\x12\x06target\x1a\x17base/v1/frequency.proto\x1a\x13base/v1/match.proto\x1a\x12base/v1/user.proto\x1a\x14base/v1/common.proto\"\x94\x03\n" +
-	"\rTargetRequest\x12\x1d\n" +
+	"\x18base/v1/rpc.target.proto\x12\x06target\x1a\x17base/v1/frequency.proto\x1a\x13base/v1/match.proto\x1a\x12base/v1/user.proto\x1a\x14base/v1/common.proto\"\xaa\x03\n" +
+	"\rTargetRequest\x12\x14\n" +
+	"\x05payer\x18\a \x01(\tR\x05payer\x12\x1d\n" +
 	"\x04uids\x18\x01 \x03(\v2\t.user.UIDR\x04uids\x127\n" +
 	"\tfrequency\x18\x02 \x03(\v2\x19.frequency.Frequency.RuleR\tfrequency\x12'\n" +
 	"\x05match\x18\x03 \x03(\v2\x11.match.Match.RuleR\x05match\x12+\n" +

@@ -59,6 +59,29 @@ func (s *Server) Unauthorized() uint64 {
 	return s.unauthorized.Load()
 }
 
+// requestPayer mirrors the cloud's payer resolution: the payer carried by the
+// request wins, and a request without one falls back to the deprecated
+// per-connection contract.Auth identity. It counts the requests that carry
+// neither, which is what the cloud reports as "payer identity is missing".
+func (s *Server) requestPayer(ctx *contract.RequestCtx, requestPayer string) (uuid.UUID, error) {
+	if requestPayer != "" {
+		payerID, err := uuid.Parse(requestPayer)
+		if err != nil {
+			return uuid.Nil, fmt.Errorf("payer %q is not a uuid: %w", requestPayer, err)
+		}
+		if payerID != uuid.Nil {
+			return payerID, nil
+		}
+	}
+
+	if payerID, ok := serverauth.GetUUID(ctx.Conn()); ok {
+		return payerID, nil
+	}
+
+	s.unauthorized.Add(1)
+	return uuid.Nil, fmt.Errorf("payer identity is missing")
+}
+
 // dropConn closes conn after a short delay, emulating an idle timeout or a
 // load-balancer reset once the response has been flushed.
 func (s *Server) dropConn(conn net.Conn) {
@@ -233,17 +256,25 @@ func (s *Server) handleAuth(ctx *contract.RequestCtx) {
 }
 
 func (s *Server) handleTarget(ctx *contract.RequestCtx) {
-	if _, ok := serverauth.GetUUID(ctx.Conn()); !ok {
-		s.unauthorized.Add(1)
-		writeError(ctx, base.RPCServerResponseCode_UNAUTHORIZED, fmt.Errorf("payer identity is missing"))
-		return
-	}
 	defer s.dropConn(ctx.Conn())
 
 	req := &base.TargetRequest{}
 	if err := proto.Unmarshal(ctx.Request.Value(), req); err != nil {
 		writeError(ctx, base.RPCServerResponseCode_INVALID_REQUEST, fmt.Errorf("cannot unmarshal target request: %w", err))
 		return
+	}
+
+	if _, err := s.requestPayer(ctx, req.GetPayer()); err != nil {
+		writeError(ctx, base.RPCServerResponseCode_UNAUTHORIZED, err)
+		return
+	}
+
+	// Each match rule names the client whose segment access is checked.
+	for i, rule := range req.GetMatch() {
+		if _, err := s.requestPayer(ctx, rule.GetPayer()); err != nil {
+			writeError(ctx, base.RPCServerResponseCode_UNAUTHORIZED, fmt.Errorf("match rule %d: %w", i, err))
+			return
+		}
 	}
 
 	if s.cfg.TargetStatus != base.RPCServerResponseCode_OK {
@@ -267,17 +298,25 @@ func (s *Server) handleTarget(ctx *contract.RequestCtx) {
 }
 
 func (s *Server) handleReport(ctx *contract.RequestCtx) {
-	if _, ok := serverauth.GetUUID(ctx.Conn()); !ok {
-		s.unauthorized.Add(1)
-		writeError(ctx, base.RPCServerResponseCode_UNAUTHORIZED, fmt.Errorf("payer identity is missing"))
-		return
-	}
 	defer s.dropConn(ctx.Conn())
 
 	req := &base.ReportRequest{}
 	if err := proto.Unmarshal(ctx.Request.Value(), req); err != nil {
 		writeError(ctx, base.RPCServerResponseCode_INVALID_REQUEST, fmt.Errorf("cannot unmarshal report request: %w", err))
 		return
+	}
+
+	if _, err := s.requestPayer(ctx, req.GetPayer()); err != nil {
+		writeError(ctx, base.RPCServerResponseCode_UNAUTHORIZED, err)
+		return
+	}
+
+	// Every rule names its own billed client, so each one has to resolve too.
+	for i, rule := range req.GetRules() {
+		if _, err := s.requestPayer(ctx, rule.GetPayer()); err != nil {
+			writeError(ctx, base.RPCServerResponseCode_UNAUTHORIZED, fmt.Errorf("rule %d: %w", i, err))
+			return
+		}
 	}
 
 	select {

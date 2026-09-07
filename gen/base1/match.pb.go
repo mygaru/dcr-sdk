@@ -115,9 +115,21 @@ func (*Match) Descriptor() ([]byte, []int) {
 
 // Describes a match rule
 type Match_Rule struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TrafficType   TrafficType            `protobuf:"varint,1,opt,name=traffic_type,json=trafficType,enum=common.TrafficType" json:"traffic_type,omitempty"`
-	SegmentIds    []uint32               `protobuf:"varint,3,rep,packed,name=segment_ids,json=segmentIds" json:"segment_ids,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	TrafficType TrafficType            `protobuf:"varint,1,opt,name=traffic_type,json=trafficType,enum=common.TrafficType" json:"traffic_type,omitempty"`
+	SegmentIds  []uint32               `protobuf:"varint,3,rep,packed,name=segment_ids,json=segmentIds" json:"segment_ids,omitempty"`
+	// payer is the UUID of the partner billed for this rule, in canonical text
+	// form ("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx").
+	//
+	// It sits on the rule so that a single request can cover segments belonging
+	// to several different clients - a platform acting for its own clients bills
+	// each of them in one call. Segment access is evaluated against this payer.
+	//
+	// When left empty the SDK fills it in from the request-level payer, so a
+	// caller working for one client only never has to set it.
+	// Field 2 was vacated by an earlier change, so 4 is used rather than
+	// reusing a number an older client may still be sending.
+	Payer         string `protobuf:"bytes,4,opt,name=payer" json:"payer,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -166,16 +178,24 @@ func (x *Match_Rule) GetSegmentIds() []uint32 {
 	return nil
 }
 
+func (x *Match_Rule) GetPayer() string {
+	if x != nil {
+		return x.Payer
+	}
+	return ""
+}
+
 var File_base_v1_match_proto protoreflect.FileDescriptor
 
 const file_base_v1_match_proto_rawDesc = "" +
 	"\n" +
-	"\x13base/v1/match.proto\x12\x05match\x1a\x14base/v1/common.proto\"\xcd\x01\n" +
-	"\x05Match\x1a_\n" +
+	"\x13base/v1/match.proto\x12\x05match\x1a\x14base/v1/common.proto\"\xe3\x01\n" +
+	"\x05Match\x1au\n" +
 	"\x04Rule\x126\n" +
 	"\ftraffic_type\x18\x01 \x01(\x0e2\x13.common.TrafficTypeR\vtrafficType\x12\x1f\n" +
 	"\vsegment_ids\x18\x03 \x03(\rR\n" +
-	"segmentIds\"c\n" +
+	"segmentIds\x12\x14\n" +
+	"\x05payer\x18\x04 \x01(\tR\x05payer\"c\n" +
 	"\x0eResponseStatus\x12\x06\n" +
 	"\x02OK\x10\x00\x12\b\n" +
 	"\x04MISS\x10\x01\x12\x11\n" +

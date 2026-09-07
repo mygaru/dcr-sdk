@@ -24,6 +24,23 @@ const (
 // A stream of events to be reported
 type ReportRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
+	// payer is the UUID of the calling partner, in canonical text form
+	// ("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"). It is REQUIRED.
+	//
+	// This is the caller's own identity, not a billing target: it resolves the
+	// user identifiers, owns the tracking id that Target returns, and pays for the
+	// OTP decryption. The partner billed for a segment check or a touch is named
+	// per rule instead, so one request can cover several clients.
+	//
+	// It also replaces the per-connection contract.Auth handshake: the identity
+	// used to be bound to the TCP connection, so any reconnect between the auth
+	// check and the write produced an UNAUTHORIZED "payer identity is missing" for
+	// a request that was otherwise valid. A request that carries its payer cannot
+	// lose it to a reconnect.
+	//
+	// When left empty the SDK fills it in from the partner id of the deprecated
+	// Configuration.JwtToken.
+	Payer string `protobuf:"bytes,4,opt,name=payer" json:"payer,omitempty"`
 	// Tracking id for BE reporting
 	TrackingId []byte `protobuf:"bytes,1,opt,name=tracking_id,json=trackingId" json:"tracking_id,omitempty"`
 	// Type of event being tracked
@@ -63,6 +80,13 @@ func (*ReportRequest) Descriptor() ([]byte, []int) {
 	return file_base_v1_rpc_report_proto_rawDescGZIP(), []int{0}
 }
 
+func (x *ReportRequest) GetPayer() string {
+	if x != nil {
+		return x.Payer
+	}
+	return ""
+}
+
 func (x *ReportRequest) GetTrackingId() []byte {
 	if x != nil {
 		return x.TrackingId
@@ -96,7 +120,17 @@ type ReportRequest_Rule struct {
 	// Adv Line Item ID
 	LI uint32 `protobuf:"varint,5,opt,name=LI" json:"LI,omitempty"`
 	// Adv Campaign ID
-	CmpID         uint32 `protobuf:"varint,6,opt,name=CmpID" json:"CmpID,omitempty"`
+	CmpID uint32 `protobuf:"varint,6,opt,name=CmpID" json:"CmpID,omitempty"`
+	// payer is the UUID of the partner billed for this rule, in canonical text
+	// form ("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx").
+	//
+	// It sits on the rule so that a single request can cover segments belonging
+	// to several different clients - a platform acting for its own clients bills
+	// each of them in one call. Segment access is evaluated against this payer.
+	//
+	// When left empty the SDK fills it in from the request-level payer, so a
+	// caller working for one client only never has to set it.
+	Payer         string `protobuf:"bytes,7,opt,name=payer" json:"payer,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -173,16 +207,24 @@ func (x *ReportRequest_Rule) GetCmpID() uint32 {
 	return 0
 }
 
+func (x *ReportRequest_Rule) GetPayer() string {
+	if x != nil {
+		return x.Payer
+	}
+	return ""
+}
+
 var File_base_v1_rpc_report_proto protoreflect.FileDescriptor
 
 const file_base_v1_rpc_report_proto_rawDesc = "" +
 	"\n" +
-	"\x18base/v1/rpc.report.proto\x12\x06report\x1a\x14base/v1/common.proto\"\xd4\x02\n" +
-	"\rReportRequest\x12\x1f\n" +
+	"\x18base/v1/rpc.report.proto\x12\x06report\x1a\x14base/v1/common.proto\"\x80\x03\n" +
+	"\rReportRequest\x12\x14\n" +
+	"\x05payer\x18\x04 \x01(\tR\x05payer\x12\x1f\n" +
 	"\vtracking_id\x18\x01 \x01(\fR\n" +
 	"trackingId\x12'\n" +
 	"\x05event\x18\x02 \x01(\x0e2\x11.common.EventTypeR\x05event\x120\n" +
-	"\x05rules\x18\x03 \x03(\v2\x1a.report.ReportRequest.RuleR\x05rules\x1a\xc6\x01\n" +
+	"\x05rules\x18\x03 \x03(\v2\x1a.report.ReportRequest.RuleR\x05rules\x1a\xdc\x01\n" +
 	"\x04Rule\x126\n" +
 	"\ftraffic_type\x18\x01 \x01(\x0e2\x13.common.TrafficTypeR\vtrafficType\x12!\n" +
 	"\fevents_count\x18\x02 \x01(\rR\veventsCount\x12\x1f\n" +
@@ -190,7 +232,8 @@ const file_base_v1_rpc_report_proto_rawDesc = "" +
 	"segmentIds\x12\x1c\n" +
 	"\tfrequency\x18\x04 \x03(\x04R\tfrequency\x12\x0e\n" +
 	"\x02LI\x18\x05 \x01(\rR\x02LI\x12\x14\n" +
-	"\x05CmpID\x18\x06 \x01(\rR\x05CmpIDB:B\tMyGaruSDKZ(github.com/mygaru/dcr-sdk/gen/base1;base\x92\x03\x02\b\x02b\beditionsp\xe8\a"
+	"\x05CmpID\x18\x06 \x01(\rR\x05CmpID\x12\x14\n" +
+	"\x05payer\x18\a \x01(\tR\x05payerB:B\tMyGaruSDKZ(github.com/mygaru/dcr-sdk/gen/base1;base\x92\x03\x02\b\x02b\beditionsp\xe8\a"
 
 var (
 	file_base_v1_rpc_report_proto_rawDescOnce sync.Once

@@ -24,6 +24,19 @@ message Match {
   message Rule {
     common.TrafficType traffic_type = 1;
     repeated uint32 segment_ids = 3;
+
+    // payer is the UUID of the partner billed for this rule, in canonical text
+    // form ("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx").
+    //
+    // It sits on the rule so that a single request can cover segments belonging
+    // to several different clients - a platform acting for its own clients bills
+    // each of them in one call. Segment access is evaluated against this payer.
+    //
+    // When left empty the SDK fills it in from the request-level payer, so a
+    // caller working for one client only never has to set it.
+    // Field 2 was vacated by an earlier change, so 4 is used rather than
+    // reusing a number an older client may still be sending.
+    string payer = 4;
   }
 
   // Response description for a match

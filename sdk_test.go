@@ -7,6 +7,8 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
@@ -25,6 +27,10 @@ import (
 
 const MaximumSimultaneousConnections = 4
 
+// testPayer is the caller identity the tests put on their requests. Requests
+// carry it themselves now, so there is no per-connection identity to set up.
+var testPayer = uuid.New()
+
 func getTestClient(t *testing.T) *client.ShardedClient {
 	t.Helper()
 
@@ -35,7 +41,6 @@ func getTestClient(t *testing.T) *client.ShardedClient {
 func newTestClient(addr string, maximumSimultaneousConnections int) *client.ShardedClient {
 	return New(&client.Configuration{
 		Addrs:                          addr,
-		JwtToken:                       []byte(uuid.NewString()),
 		MaximumSimultaneousConnections: maximumSimultaneousConnections,
 	})
 }
@@ -45,6 +50,7 @@ func TestTargetReturnsTrackingIDAndReportRoutesByIt(t *testing.T) {
 	rpc := newTestClient(server.Addr(), 2)
 
 	resp, sc, err := rpc.Target(&base.TargetRequest{
+		Payer: testPayer.String(),
 		Uids: []*base.UID{
 			{Id: []byte(uuid.New().String()), Type: base.UID_DEVICE_ID},
 		},
@@ -66,6 +72,7 @@ func TestTargetReturnsTrackingIDAndReportRoutesByIt(t *testing.T) {
 	}
 
 	report := &base.ReportRequest{
+		Payer:      testPayer.String(),
 		TrackingId: resp.TrackingId,
 		Event:      base.EventType_EVENT_TYPE_CLICK,
 		Rules: []*base.ReportRequest_Rule{
@@ -93,7 +100,7 @@ func TestTargetReturnsTrackingIDAndReportRoutesByIt(t *testing.T) {
 	}
 }
 
-func TestAuth(t *testing.T) {
+func TestTargetUsesEveryConnectionInThePool(t *testing.T) {
 	rpc := getTestClient(t)
 	for i := 0; i < 100; i++ {
 		_, sc, err := rpc.Target(testTargetRequest())
@@ -111,18 +118,69 @@ func TestAuth(t *testing.T) {
 	}
 }
 
-func TestAuthFailureReturnsUnauthorized(t *testing.T) {
-	server := startTestCloud(t, testcloud.Config{
-		AuthStatusCode: base.RPCServerResponseCode_UNAUTHORIZED,
-	})
+func TestCallsRejectMissingPayer(t *testing.T) {
+	// No payer on the request and no legacy token: the SDK must refuse locally
+	// rather than send a request the cloud will reject.
+	server := startTestCloud(t, testcloud.Config{ServerID: 1024})
 	rpc := newTestClient(server.Addr(), 1)
 
-	_, sc, err := rpc.Target(testTargetRequest())
-	if !errors.Is(err, client.ErrorUnauthorized) {
-		t.Fatalf("expected unauthorized error, got %v", err)
+	req := testTargetRequest()
+	req.Payer = ""
+
+	_, sc, err := rpc.Target(req)
+	if !errors.Is(err, client.ErrorPayerRequired) {
+		t.Fatalf("Target: expected ErrorPayerRequired, got %v", err)
 	}
-	if sc != base.RPCServerResponseCode_UNAUTHORIZED {
-		t.Fatalf("expected status code to be %d, got %d", base.RPCServerResponseCode_UNAUTHORIZED, sc)
+	if sc != base.RPCServerResponseCode_INVALID_REQUEST {
+		t.Fatalf("Target: expected INVALID_REQUEST, got %s", sc)
+	}
+
+	sc, err = rpc.Report(&base.ReportRequest{
+		TrackingId: []byte("0400000000000001"),
+		Rules:      []*base.ReportRequest_Rule{{EventsCount: 1}},
+	})
+	if !errors.Is(err, client.ErrorPayerRequired) {
+		t.Fatalf("Report: expected ErrorPayerRequired, got %v", err)
+	}
+	if sc != base.RPCServerResponseCode_INVALID_REQUEST {
+		t.Fatalf("Report: expected INVALID_REQUEST, got %s", sc)
+	}
+}
+
+func TestTargetPutsPayerOnTheRequest(t *testing.T) {
+	server := startTestCloud(t, testcloud.Config{ServerID: 1024})
+	rpc := newTestClient(server.Addr(), 1)
+
+	req := testTargetRequest()
+	if _, _, err := rpc.Target(req); err != nil {
+		t.Fatalf("Target: %v", err)
+	}
+	if req.GetPayer() != testPayer.String() {
+		t.Fatalf("expected the SDK to set payer %s on the request, got %q", testPayer, req.GetPayer())
+	}
+	if got := server.Unauthorized(); got != 0 {
+		t.Fatalf("expected no request without a payer to reach the server, got %d", got)
+	}
+}
+
+func TestPayerFallsBackToDeprecatedJwtToken(t *testing.T) {
+	// Callers that have not migrated yet keep working: the partner id is taken
+	// from Configuration.JwtToken when the request names no payer.
+	partnerID := uuid.New()
+	server := startTestCloud(t, testcloud.Config{ServerID: 1024})
+	rpc := New(&client.Configuration{
+		Addrs:                          server.Addr(),
+		JwtToken:                       testJwtToken(t, partnerID.String()),
+		MaximumSimultaneousConnections: 1,
+	})
+
+	req := testTargetRequest()
+	req.Payer = ""
+	if _, sc, err := rpc.Target(req); err != nil {
+		t.Fatalf("Target: %s: %v", sc, err)
+	}
+	if req.GetPayer() != partnerID.String() {
+		t.Fatalf("expected payer %s from the legacy token, got %q", partnerID, req.GetPayer())
 	}
 }
 
@@ -217,6 +275,7 @@ func TestTargetReturnsServerStatusError(t *testing.T) {
 	rpc := newTestClient(server.Addr(), 1)
 
 	resp, sc, err := rpc.Target(&base.TargetRequest{
+		Payer: testPayer.String(),
 		Uids: []*base.UID{
 			{Id: []byte(uuid.New().String()), Type: base.UID_DEVICE_ID},
 		},
@@ -235,7 +294,7 @@ func TestTargetReturnsServerStatusError(t *testing.T) {
 func TestReportRejectsMissingAndUnknownTrackingID(t *testing.T) {
 	rpc := getTestClient(t)
 
-	sc, err := rpc.Report(&base.ReportRequest{})
+	sc, err := rpc.Report(&base.ReportRequest{Payer: testPayer.String()})
 	if nil == err {
 		t.Fatalf("expected missing tracking id error")
 	}
@@ -243,7 +302,7 @@ func TestReportRejectsMissingAndUnknownTrackingID(t *testing.T) {
 		t.Fatalf("expected status code to be %d, got %d", base.RPCServerResponseCode_UNKNOWN, sc)
 	}
 
-	sc, err = rpc.Report(&base.ReportRequest{TrackingId: []byte("FFFF000000000001")})
+	sc, err = rpc.Report(&base.ReportRequest{Payer: testPayer.String(), TrackingId: []byte("FFFF000000000001")})
 	if nil == err {
 		t.Fatalf("expected unknown server error")
 	}
@@ -303,6 +362,7 @@ func TestNew(t *testing.T) {
 
 func testTargetRequest() *base.TargetRequest {
 	return &base.TargetRequest{
+		Payer: testPayer.String(),
 		Uids: []*base.UID{
 			{Id: []byte(uuid.New().String()), Type: base.UID_DEVICE_ID},
 		},
@@ -379,12 +439,12 @@ func newTestServerTLSCertificate(ca *mtls.Certificate) (tls.Certificate, error) 
 	}, nil
 }
 
-// TestTargetSurvivesConnectionChurn covers the regression where the server's
-// payer identity - which lives on the TCP connection only - was lost on
-// reconnect while the SDK still believed the connection was authenticated. The
-// first Target/Report after every disconnect was then written to a fresh,
-// unauthenticated connection and rejected with UNAUTHORIZED "payer identity is
-// missing".
+// TestTargetSurvivesConnectionChurn guards the reason the payer moved into the
+// request. While the payer lived on the TCP connection, the first Target/Report
+// after every disconnect was written to a fresh, unauthenticated connection and
+// rejected with UNAUTHORIZED "payer identity is missing". A self-describing
+// request cannot lose its identity to a reconnect, so no request may arrive
+// without a payer no matter how often the connection is dropped.
 func TestTargetSurvivesConnectionChurn(t *testing.T) {
 	server := startTestCloud(t, testcloud.Config{ServerID: 1024, DropConnAfterRequest: true})
 	rpc := newTestClient(server.Addr(), 1)
@@ -404,5 +464,143 @@ func TestTargetSurvivesConnectionChurn(t *testing.T) {
 	}
 	if got := rpc.Reconnects(); got < requests {
 		t.Fatalf("expected at least %d reconnects to be exercised, got %d", requests, got)
+	}
+}
+
+// testJwtToken builds an unsigned JWT-shaped token carrying partner.id, which is
+// all the deprecated Configuration.JwtToken fallback reads.
+func testJwtToken(t *testing.T, partnerID string) []byte {
+	t.Helper()
+
+	payload, err := json.Marshal(map[string]any{
+		"partner": map[string]any{"id": partnerID},
+	})
+	if err != nil {
+		t.Fatalf("marshal claims: %v", err)
+	}
+
+	enc := base64.RawURLEncoding
+	return []byte(enc.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`)) +
+		"." + enc.EncodeToString(payload) + ".signature-not-verified")
+}
+
+// TestReportBillsSeveralClientsInOneCall is the reason the payer moved onto the
+// rule: a platform reporting for its own clients names each of them per rule and
+// sends one report.
+func TestReportBillsSeveralClientsInOneCall(t *testing.T) {
+	clientA := uuid.New()
+	clientB := uuid.New()
+	platform := uuid.New()
+
+	server := startTestCloud(t, testcloud.Config{ServerID: 1024})
+	rpc := newTestClient(server.Addr(), 1)
+
+	targetReq := testTargetRequest()
+	targetReq.Payer = platform.String()
+	targetResp, _, err := rpc.Target(targetReq)
+	if err != nil {
+		t.Fatalf("target: %v", err)
+	}
+
+	req := &base.ReportRequest{
+		Payer:      platform.String(),
+		TrackingId: targetResp.GetTrackingId(),
+		Event:      base.EventType_EVENT_TYPE_IMPRESSION,
+		Rules: []*base.ReportRequest_Rule{
+			{TrafficType: base.TrafficType_TRAFFIC_TYPE_VIDEO, EventsCount: 1, SegmentIds: []uint32{1}, Payer: clientA.String()},
+			{TrafficType: base.TrafficType_TRAFFIC_TYPE_DISPLAY, EventsCount: 2, SegmentIds: []uint32{2}, Payer: clientB.String()},
+			// No payer: inherits the request-level payer.
+			{TrafficType: base.TrafficType_TRAFFIC_TYPE_VIDEO_SENSITIVE, EventsCount: 3, SegmentIds: []uint32{3}},
+		},
+	}
+
+	if _, err = rpc.Report(req); err != nil {
+		t.Fatalf("report: %v", err)
+	}
+
+	want := []string{clientA.String(), clientB.String(), platform.String()}
+	for i, rule := range req.GetRules() {
+		if rule.GetPayer() != want[i] {
+			t.Errorf("rule %d payer = %q, want %q", i, rule.GetPayer(), want[i])
+		}
+	}
+
+	got := nextReport(t, server)
+	for i, rule := range got.GetRules() {
+		if rule.GetPayer() != want[i] {
+			t.Errorf("rule %d payer on the wire = %q, want %q", i, rule.GetPayer(), want[i])
+		}
+	}
+	if n := server.Unauthorized(); n != 0 {
+		t.Fatalf("expected every rule to name a payer, got %d unattributed", n)
+	}
+}
+
+// TestTargetChecksSegmentsOfSeveralClients is the reason the payer sits on
+// Match.Rule: one Target can ask for the segments of several clients at once,
+// each rule naming the client whose segment access is evaluated.
+func TestTargetChecksSegmentsOfSeveralClients(t *testing.T) {
+	clientA := uuid.New()
+	clientB := uuid.New()
+	platform := uuid.New()
+
+	server := startTestCloud(t, testcloud.Config{ServerID: 1024})
+	rpc := newTestClient(server.Addr(), 1)
+
+	req := &base.TargetRequest{
+		Payer: platform.String(),
+		Uids: []*base.UID{
+			{Id: []byte(uuid.New().String()), Type: base.UID_DEVICE_ID},
+		},
+		Match: []*base.Match_Rule{
+			{TrafficType: base.TrafficType_TRAFFIC_TYPE_VIDEO, SegmentIds: []uint32{1}, Payer: clientA.String()},
+			{TrafficType: base.TrafficType_TRAFFIC_TYPE_DISPLAY, SegmentIds: []uint32{2}, Payer: clientB.String()},
+			// No payer: inherits the request-level payer.
+			{TrafficType: base.TrafficType_TRAFFIC_TYPE_VIDEO_SENSITIVE, SegmentIds: []uint32{3}},
+		},
+	}
+
+	if _, sc, err := rpc.Target(req); err != nil {
+		t.Fatalf("target: %s: %v", sc, err)
+	}
+
+	want := []string{clientA.String(), clientB.String(), platform.String()}
+	for i, rule := range req.GetMatch() {
+		if rule.GetPayer() != want[i] {
+			t.Errorf("match rule %d payer = %q, want %q", i, rule.GetPayer(), want[i])
+		}
+	}
+	if req.GetPayer() != platform.String() {
+		t.Errorf("request payer = %q, want the platform %s", req.GetPayer(), platform)
+	}
+	if n := server.Unauthorized(); n != 0 {
+		t.Fatalf("expected every rule to name a payer, got %d unattributed", n)
+	}
+}
+
+// TestRulePayerSurvivesTheRequestPayer pins that stamping the request-level
+// payer never overwrites a payer a rule already names - otherwise a mixed
+// request would silently collapse onto one client.
+func TestRulePayerSurvivesTheRequestPayer(t *testing.T) {
+	client := uuid.New()
+	platform := uuid.New()
+
+	rpc := newTestClient("127.0.0.1:1", 1)
+
+	req := &base.ReportRequest{
+		Payer:      platform.String(),
+		TrackingId: []byte("0400000000000001"),
+		Rules: []*base.ReportRequest_Rule{
+			{EventsCount: 1, Payer: client.String()},
+		},
+	}
+	// The call fails at the network, which is fine: the payers are stamped first.
+	_, _ = rpc.Report(req)
+
+	if got := req.GetRules()[0].GetPayer(); got != client.String() {
+		t.Fatalf("rule payer = %q, want the rule's own %s", got, client)
+	}
+	if got := req.GetPayer(); got != platform.String() {
+		t.Fatalf("request payer = %q, want %s", got, platform)
 	}
 }
