@@ -181,7 +181,7 @@ const file_base_v1_match_proto_rawDesc = "" +
 	"\x04MISS\x10\x01\x12\x11\n" +
 	"\rACCESS_DENIED\x10\x02\x12\x17\n" +
 	"\x13SERVICE_UNAVAILABLE\x10\x03\x12\x13\n" +
-	"\x0fUNKNOWN_SEGMENT\x10\x04BAB\tMyGaruSDKZ/github.com/mygaru/dcr-sdk/gen/base1;base\x92\x03\x02\b\x02b\beditionsp\xe8\a"
+	"\x0fUNKNOWN_SEGMENT\x10\x04B:B\tMyGaruSDKZ(github.com/mygaru/dcr-sdk/gen/base1;base\x92\x03\x02\b\x02b\beditionsp\xe8\a"
 
 var (
 	file_base_v1_match_proto_rawDescOnce sync.Once

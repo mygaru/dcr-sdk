@@ -31,10 +31,71 @@ go get github.com/mygaru/dcr-sdk
 .
 ├── base/v1              # protobuf schemas
 ├── gen/base1            # generated protobuf Go code
+├── cmd/proto-verify     # loads the generated descriptors (used by `make proto`)
 ├── pkg/contract         # low-level RPC wire contract
 ├── pkg/client           # sharded RPC client implementation
 └── sdk.go               # public constructors
 ```
+
+---
+
+## Regenerating protobuf code
+
+Install the pinned plugins once (`protoc` itself comes from your package
+manager, e.g. `brew install protobuf`):
+
+```bash
+make proto-tools
+```
+
+Then regenerate after any change to `base/v1/*.proto`:
+
+```bash
+make proto
+```
+
+`make proto` runs `protoc` and then `make proto-verify`, which loads every
+generated descriptor and fails the build if it does not parse. Commit the
+regenerated `gen/base1/*.pb.go` together with the `.proto` change.
+
+### Never hand-edit `gen/base1/*.pb.go`
+
+`protoc` embeds the whole `FileDescriptorProto` into each generated file as the
+`file_..._rawDesc` string. Every string inside it is **length-prefixed**, so a
+search-and-replace that changes the number of bytes leaves the prefix pointing
+past the end of the value. Such a file still compiles; it panics at package
+init instead:
+
+```
+panic: runtime error: slice bounds out of range [-4:]
+    google.golang.org/protobuf/internal/filedesc.(*File).unmarshalSeed
+    gen/base1.file_base_v1_common_proto_init()
+```
+
+This has broken every consumer of the SDK twice, in both directions - once by
+lengthening the module path, once by shortening it. If a path inside generated
+code has to change, change `option go_package` in the `.proto` and run
+`make proto`.
+
+### Why `go_package` names the public module path
+
+`base/v1/*.proto` declares
+
+```proto
+option go_package = "github.com/mygaru/dcr-sdk/gen/base1;base";
+```
+
+which is the **public mirror** path, not this repository's own module path. The
+`sync_to_github` CI job mirrors the repo and rewrites the internal module path
+to the public one with `sed` across every text file - which is exactly the
+length-changing edit described above. Generating with the public path keeps the
+internal path out of the descriptor, so the mirror has nothing to rewrite; the
+job additionally excludes `*.pb.go` from the rewrite and fails if the internal
+path shows up under `gen/` at all.
+
+The Go import path is determined by the directory plus `go.mod`, not by
+`go_package`, so this has no effect on internal consumers. `PROTO_GO_MODULE` in
+the Makefile must stay in sync with this value.
 
 ---
 

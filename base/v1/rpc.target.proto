@@ -6,6 +6,15 @@ import "base/v1/user.proto";
 import "base/v1/common.proto";
 
 option java_outer_classname = "myGaruSDK";
+// NOTE: go_package intentionally names the PUBLIC module path
+// (github.com/mygaru/dcr-sdk), not this repository's own module path. protoc
+// embeds this string, length-prefixed, into the FileDescriptorProto inside the
+// generated *.pb.go. The sync_to_github CI job rewrites the internal module path
+// to the public one with sed across every text file; on a *.pb.go that shortens
+// the embedded string without touching its length prefix and leaves a descriptor
+// that panics at init with "slice bounds out of range". Naming the public path
+// here keeps the internal path out of the descriptor entirely, so the mirror has
+// nothing to rewrite. See PROTO_GO_MODULE in the Makefile.
 option go_package = "github.com/mygaru/dcr-sdk/gen/base1;base";
 
 option features.field_presence = IMPLICIT;
