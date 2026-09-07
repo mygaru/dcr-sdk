@@ -50,12 +50,11 @@ func TestTargetReturnsTrackingIDAndReportRoutesByIt(t *testing.T) {
 	rpc := newTestClient(server.Addr(), 2)
 
 	resp, sc, err := rpc.Target(&base.TargetRequest{
-		Payer: testPayer.String(),
 		Uids: []*base.UID{
 			{Id: []byte(uuid.New().String()), Type: base.UID_DEVICE_ID},
 		},
 		Match: []*base.Match_Rule{
-			{TrafficType: base.TrafficType_TRAFFIC_TYPE_VIDEO, SegmentIds: []uint32{1, 2, 3}},
+			{TrafficType: base.TrafficType_TRAFFIC_TYPE_VIDEO, SegmentIds: []uint32{1, 2, 3}, Payer: testPayer.String()},
 		},
 	})
 	if nil != err {
@@ -125,7 +124,7 @@ func TestCallsRejectMissingPayer(t *testing.T) {
 	rpc := newTestClient(server.Addr(), 1)
 
 	req := testTargetRequest()
-	req.Payer = ""
+	req.Match[0].Payer = ""
 
 	_, sc, err := rpc.Target(req)
 	if !errors.Is(err, client.ErrorPayerRequired) {
@@ -155,8 +154,8 @@ func TestTargetPutsPayerOnTheRequest(t *testing.T) {
 	if _, _, err := rpc.Target(req); err != nil {
 		t.Fatalf("Target: %v", err)
 	}
-	if req.GetPayer() != testPayer.String() {
-		t.Fatalf("expected the SDK to set payer %s on the request, got %q", testPayer, req.GetPayer())
+	if got := req.GetMatch()[0].GetPayer(); got != testPayer.String() {
+		t.Fatalf("expected the SDK to keep payer %s on the match rule, got %q", testPayer, got)
 	}
 	if got := server.Unauthorized(); got != 0 {
 		t.Fatalf("expected no request without a payer to reach the server, got %d", got)
@@ -175,12 +174,12 @@ func TestPayerFallsBackToDeprecatedJwtToken(t *testing.T) {
 	})
 
 	req := testTargetRequest()
-	req.Payer = ""
+	req.Match[0].Payer = ""
 	if _, sc, err := rpc.Target(req); err != nil {
 		t.Fatalf("Target: %s: %v", sc, err)
 	}
-	if req.GetPayer() != partnerID.String() {
-		t.Fatalf("expected payer %s from the legacy token, got %q", partnerID, req.GetPayer())
+	if got := req.GetMatch()[0].GetPayer(); got != partnerID.String() {
+		t.Fatalf("expected payer %s from the legacy token, got %q", partnerID, got)
 	}
 }
 
@@ -275,7 +274,6 @@ func TestTargetReturnsServerStatusError(t *testing.T) {
 	rpc := newTestClient(server.Addr(), 1)
 
 	resp, sc, err := rpc.Target(&base.TargetRequest{
-		Payer: testPayer.String(),
 		Uids: []*base.UID{
 			{Id: []byte(uuid.New().String()), Type: base.UID_DEVICE_ID},
 		},
@@ -362,12 +360,11 @@ func TestNew(t *testing.T) {
 
 func testTargetRequest() *base.TargetRequest {
 	return &base.TargetRequest{
-		Payer: testPayer.String(),
 		Uids: []*base.UID{
 			{Id: []byte(uuid.New().String()), Type: base.UID_DEVICE_ID},
 		},
 		Match: []*base.Match_Rule{
-			{TrafficType: base.TrafficType_TRAFFIC_TYPE_VIDEO, SegmentIds: []uint32{1, 2, 3}},
+			{TrafficType: base.TrafficType_TRAFFIC_TYPE_VIDEO, SegmentIds: []uint32{1, 2, 3}, Payer: testPayer.String()},
 		},
 	}
 }
@@ -496,7 +493,7 @@ func TestReportBillsSeveralClientsInOneCall(t *testing.T) {
 	rpc := newTestClient(server.Addr(), 1)
 
 	targetReq := testTargetRequest()
-	targetReq.Payer = platform.String()
+	targetReq.Match[0].Payer = platform.String()
 	targetResp, _, err := rpc.Target(targetReq)
 	if err != nil {
 		t.Fatalf("target: %v", err)
@@ -548,15 +545,13 @@ func TestTargetChecksSegmentsOfSeveralClients(t *testing.T) {
 	rpc := newTestClient(server.Addr(), 1)
 
 	req := &base.TargetRequest{
-		Payer: platform.String(),
 		Uids: []*base.UID{
 			{Id: []byte(uuid.New().String()), Type: base.UID_DEVICE_ID},
 		},
 		Match: []*base.Match_Rule{
 			{TrafficType: base.TrafficType_TRAFFIC_TYPE_VIDEO, SegmentIds: []uint32{1}, Payer: clientA.String()},
 			{TrafficType: base.TrafficType_TRAFFIC_TYPE_DISPLAY, SegmentIds: []uint32{2}, Payer: clientB.String()},
-			// No payer: inherits the request-level payer.
-			{TrafficType: base.TrafficType_TRAFFIC_TYPE_VIDEO_SENSITIVE, SegmentIds: []uint32{3}},
+			{TrafficType: base.TrafficType_TRAFFIC_TYPE_VIDEO_SENSITIVE, SegmentIds: []uint32{3}, Payer: platform.String()},
 		},
 	}
 
@@ -569,9 +564,6 @@ func TestTargetChecksSegmentsOfSeveralClients(t *testing.T) {
 		if rule.GetPayer() != want[i] {
 			t.Errorf("match rule %d payer = %q, want %q", i, rule.GetPayer(), want[i])
 		}
-	}
-	if req.GetPayer() != platform.String() {
-		t.Errorf("request payer = %q, want the platform %s", req.GetPayer(), platform)
 	}
 	if n := server.Unauthorized(); n != 0 {
 		t.Fatalf("expected every rule to name a payer, got %d unattributed", n)
@@ -602,5 +594,25 @@ func TestRulePayerSurvivesTheRequestPayer(t *testing.T) {
 	}
 	if got := req.GetPayer(); got != platform.String() {
 		t.Fatalf("request payer = %q, want %s", got, platform)
+	}
+}
+
+// TestTargetWithoutMatchRulesNeedsNoPayer follows from the payer living on the
+// match rule: a request that matches nothing has nobody to bill, so it must not
+// require an identity at all.
+func TestTargetWithoutMatchRulesNeedsNoPayer(t *testing.T) {
+	server := startTestCloud(t, testcloud.Config{ServerID: 1024})
+	rpc := newTestClient(server.Addr(), 1)
+
+	resp, sc, err := rpc.Target(&base.TargetRequest{
+		Uids: []*base.UID{
+			{Id: []byte(uuid.New().String()), Type: base.UID_DEVICE_ID},
+		},
+	})
+	if err != nil {
+		t.Fatalf("target: %s: %v", sc, err)
+	}
+	if len(resp.GetTrackingId()) == 0 {
+		t.Fatal("expected a tracking id")
 	}
 }

@@ -22,23 +22,11 @@ option features.field_presence = IMPLICIT;
 package target;
 
 message TargetRequest {
-  // payer is the UUID of the calling partner, in canonical text form
-  // ("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"). It is REQUIRED.
-  //
-  // This is the caller's own identity, not a billing target: it resolves the
-  // user identifiers, owns the tracking id that Target returns, and pays for the
-  // OTP decryption. The partner billed for a segment check or a touch is named
-  // per rule instead, so one request can cover several clients.
-  //
-  // It also replaces the per-connection contract.Auth handshake: the identity
-  // used to be bound to the TCP connection, so any reconnect between the auth
-  // check and the write produced an UNAUTHORIZED "payer identity is missing" for
-  // a request that was otherwise valid. A request that carries its payer cannot
-  // lose it to a reconnect.
-  //
-  // When left empty the SDK fills it in from the partner id of the deprecated
-  // Configuration.JwtToken.
-  string payer = 7;
+  // Field 7 held a single request-level payer. The payer now lives on each
+  // match rule so that one request can check the segments of several clients.
+  // It is reserved because 7 was already on main (commit 17826c8) and may have
+  // been pulled by a consumer; drop the reservation if nothing ever consumed it.
+  reserved 7;
 
   // List of user identifiers currently available.
   repeated user.UID uids = 1;

@@ -109,35 +109,32 @@ The root package exposes two constructors:
 
 ## Payer identity
 
-Two levels, and they mean different things.
+**`Match.Rule.payer` / `ReportRequest.Rule.payer` — who is billed.** Segment
+access is evaluated against it and touches are billed to it, so one request can
+cover several clients. This is where the payer lives for a Target: the request
+itself has none.
 
-**`req.Payer` — who is calling.** Required on both `TargetRequest` and
-`ReportRequest`. It resolves the user identifiers, owns the tracking id that
-`Target` returns, pays for the OTP decryption, and is the only partner allowed to
-report against its own tracking id. When left empty the SDK fills it in from
-`partner.id` of the deprecated `Configuration.JwtToken`; if that is unusable too
-the call fails locally with `client.ErrorPayerRequired` and `INVALID_REQUEST` -
-nothing is sent.
+**`ReportRequest.payer` — who is reporting.** A report has a single one. It must
+be a partner that took part in the Target that produced the tracking id, it pays
+for the OTP decryption, and it is billed for report rules that name no client of
+their own.
 
-**`rule.Payer` — who is billed.** Optional on every `Match.Rule` and every
-`ReportRequest.Rule`. Segment access is evaluated against it, and touches are
-billed to it, so one request can cover several clients. A rule that leaves it
-empty inherits `req.Payer`, so a caller working for a single client never sets
-it.
+A rule that leaves the payer empty falls back to `ReportRequest.payer` for a
+report, and to `partner.id` of the deprecated `Configuration.JwtToken` for a
+Target. If nothing resolves, the call fails locally with
+`client.ErrorPayerRequired` and `INVALID_REQUEST` - nothing is sent.
 
 ```go
 resp, status, err := cli.Target(&base.TargetRequest{
-    Payer: platform.String(),               // who is calling
-    Uids:  []*base.UID{{Id: deviceID, Type: base.UID_DEVICE_ID}},
+    Uids: []*base.UID{{Id: deviceID, Type: base.UID_DEVICE_ID}},
     Match: []*base.Match_Rule{
         {TrafficType: ..., SegmentIds: []uint32{1}, Payer: clientA.String()},
         {TrafficType: ..., SegmentIds: []uint32{2}, Payer: clientB.String()},
-        {TrafficType: ..., SegmentIds: []uint32{3}},   // inherits platform
     },
 })
 
 status, err = cli.Report(&base.ReportRequest{
-    Payer:      platform.String(),          // must own the tracking id
+    Payer:      clientA.String(),        // took part in the Target above
     TrackingId: resp.GetTrackingId(),
     Event:      base.EventType_EVENT_TYPE_IMPRESSION,
     Rules: []*base.ReportRequest_Rule{
@@ -147,10 +144,20 @@ status, err = cli.Report(&base.ReportRequest{
 })
 ```
 
-A rule that names a payer **keeps** it - stamping `req.Payer` never overwrites
-it, otherwise a mixed request would silently collapse onto one client. A rule
-naming an unknown or malformed partner fails the whole request rather than
-leaving part of it billed.
+A rule that names a payer **keeps** it - the fallback never overwrites it,
+otherwise a mixed request would silently collapse onto one client. A rule naming
+an unknown or malformed partner fails the whole request rather than leaving part
+of it billed.
+
+### Only a participant may report
+
+The cloud records the set of partners that took part in a Target and accepts a
+report only from one of them. Two consequences worth knowing:
+
+- a Target that carries **no match rules** names nobody, so it needs no payer at
+  all - but its tracking id can never be reported against;
+- to report against a tracking id, name that payer on at least one match rule of
+  the Target that created it.
 
 ### Why it replaced connection authentication
 

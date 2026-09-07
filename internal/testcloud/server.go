@@ -264,12 +264,8 @@ func (s *Server) handleTarget(ctx *contract.RequestCtx) {
 		return
 	}
 
-	if _, err := s.requestPayer(ctx, req.GetPayer()); err != nil {
-		writeError(ctx, base.RPCServerResponseCode_UNAUTHORIZED, err)
-		return
-	}
-
-	// Each match rule names the client whose segment access is checked.
+	// The payer lives on the match rules: each one names the client whose
+	// segment access is checked. A request with no match rules needs no payer.
 	for i, rule := range req.GetMatch() {
 		if _, err := s.requestPayer(ctx, rule.GetPayer()); err != nil {
 			writeError(ctx, base.RPCServerResponseCode_UNAUTHORIZED, fmt.Errorf("match rule %d: %w", i, err))

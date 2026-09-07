@@ -103,15 +103,12 @@ func (sh *clientsGroup) getClient() *client {
 // Obtain identification accuracy to determine the validity and reliability of the response.
 // For more details, see here: [LINK]
 //
-// req.Payer is the caller's own identity and is required; when empty it falls
-// back to the partner id of the deprecated Configuration.JwtToken. Each match
-// rule may name the client it is billed to in req.Match[i].Payer; rules that
-// leave it empty inherit req.Payer.
+// Each match rule names the client whose segments are checked, in
+// req.Match[i].Payer. A rule that leaves it empty falls back to the partner id
+// of the deprecated Configuration.JwtToken. A request with no match rules needs
+// no payer at all - it only resolves the identifiers and returns a tracking id.
 func (sc *ShardedClient) Target(req *base.TargetRequest) (*base.TargetResponse, base.RPCServerResponseCode, error) {
-	if err := sc.applyPayers(req.GetPayer(), func(payer uuid.UUID) error {
-		req.Payer = payer.String()
-		return applyMatchRulePayers(req.GetMatch(), payer)
-	}); err != nil {
+	if err := applyMatchRulePayers(req.GetMatch(), sc.legacyPayer); err != nil {
 		return nil, base.RPCServerResponseCode_INVALID_REQUEST, err
 	}
 
@@ -177,13 +174,16 @@ func (sc *ShardedClient) applyPayers(requestPayer string, stamp func(uuid.UUID) 
 }
 
 // applyMatchRulePayers stamps the billed client onto every Target match rule.
-func applyMatchRulePayers(rules []*base.Match_Rule, requestPayer uuid.UUID) error {
+//
+// defaultPayer may be uuid.Nil: a request with no match rules needs no payer,
+// and a request whose every rule names a client needs no default either.
+func applyMatchRulePayers(rules []*base.Match_Rule, defaultPayer uuid.UUID) error {
 	for i, rule := range rules {
 		if rule == nil {
 			return fmt.Errorf("match rule %d must not be nil", i)
 		}
 
-		resolved, err := resolveRulePayer(rule.GetPayer(), requestPayer)
+		resolved, err := resolveRulePayer(rule.GetPayer(), defaultPayer)
 		if err != nil {
 			return fmt.Errorf("match rule %d: %w", i, err)
 		}
