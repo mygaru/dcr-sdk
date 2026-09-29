@@ -43,11 +43,9 @@ func main() {
 }
 
 func loadTLSConfig() (*tls.Config, error) {
-	if *tlsCertPath == "" && *tlsKeyPath == "" && *clientCAPath == "" {
-		return nil, nil
-	}
+	// the test cloud serves mTLS only, like the cloud
 	if *tlsCertPath == "" || *tlsKeyPath == "" || *clientCAPath == "" {
-		return nil, fmt.Errorf("tlsCert, tlsKey, and clientCA must be set together")
+		return nil, fmt.Errorf("tlsCert, tlsKey, and clientCA are required")
 	}
 
 	serverCert, err := tls.LoadX509KeyPair(*tlsCertPath, *tlsKeyPath)

@@ -22,21 +22,6 @@ type Configuration struct {
 	// Addrs specifies the comma-separated list of server addresses used for sharding the client connections.
 	Addrs string
 
-	// JwtToken was the client's JWT for the connection-level contract.Auth
-	// handshake.
-	//
-	// Deprecated: the SDK no longer authenticates connections. The token is now
-	// only read once, at construction time, to recover partner.id as the default
-	// payer for calls that pass uuid.Nil. Pass the payer to Target/Report
-	// explicitly and stop setting this field.
-	JwtToken []byte
-
-	// DisableAuth skipped the legacy contract.Auth request.
-	//
-	// Deprecated: no-op. Connection authentication has been removed, so there is
-	// nothing left to disable. Kept so existing configurations still compile.
-	DisableAuth bool
-
 	// MaxRequestDuration specifies the maximum duration allowed for each request to prevent excessive timeouts or delays.
 	MaxRequestDuration time.Duration
 
@@ -74,11 +59,6 @@ type ShardedClient struct {
 
 	// clients is a slice of pointers to client instances used for managing connections to multiple servers for sharding.
 	clients []*clientsGroup
-
-	// legacyPayer is partner.id recovered from the deprecated
-	// Configuration.JwtToken at construction time. It is the last-resort default
-	// for calls that pass uuid.Nil and leave the request payer empty.
-	legacyPayer uuid.UUID
 }
 
 // clientsGroup holds the connections opened to one address from Addrs.
@@ -107,11 +87,11 @@ func (sh *clientsGroup) getClient() *client {
 // For more details, see here: [LINK]
 //
 // Each match rule names the client whose segments are checked, in
-// req.Match[i].Payer. A rule that leaves it empty falls back to the partner id
-// of the deprecated Configuration.JwtToken. A request with no match rules needs
-// no payer at all - it only resolves the identifiers and returns a tracking id.
+// req.Match[i].Payer, and is refused without one. A request with no match rules
+// needs no payer at all - it only resolves the identifiers and returns a
+// tracking id.
 func (sc *ShardedClient) Target(req *base.TargetRequest) (*base.TargetResponse, base.RPCServerResponseCode, error) {
-	if err := applyMatchRulePayers(req.GetMatch(), sc.legacyPayer); err != nil {
+	if err := applyMatchRulePayers(req.GetMatch(), uuid.Nil); err != nil {
 		return nil, base.RPCServerResponseCode_INVALID_REQUEST, err
 	}
 
@@ -128,8 +108,7 @@ func (sc *ShardedClient) Target(req *base.TargetRequest) (*base.TargetResponse, 
 // This mechanism is used to record statistical data and perform settlements between system users as part of the third-party billing strategy.
 // For more details, see here: [LINK]
 //
-// req.Payer is the caller's own identity and is required; when empty it falls
-// back to the partner id of the deprecated Configuration.JwtToken. Each rule may
+// req.Payer is the caller's own identity and is required. Each rule may
 // name the client it is billed to in req.Rules[i].Payer; rules that leave it
 // empty inherit req.Payer.
 func (sc *ShardedClient) Report(req *base.ReportRequest) (base.RPCServerResponseCode, error) {
@@ -159,7 +138,7 @@ func (sc *ShardedClient) Report(req *base.ReportRequest) (base.RPCServerResponse
 // and event counts are the cloud's contract, and duplicating them would only
 // change which error a caller sees.
 func (sc *ShardedClient) applyPayers(requestPayer string, stamp func(uuid.UUID) error) error {
-	payer, err := resolveRequestPayer(requestPayer, sc.legacyPayer)
+	payer, err := resolveRequestPayer(requestPayer)
 	if err != nil {
 		return err
 	}
@@ -246,7 +225,6 @@ func (sc *ShardedClient) Reconnects() int {
 	return n
 }
 
-// NewClient initializes and returns a new instance of ShardedClient
 const (
 	defaultMaxRequestDuration             = time.Second
 	defaultMaximumSimultaneousConnections = 128
@@ -254,13 +232,14 @@ const (
 	defaultBufferSize                     = 4 * 1024
 )
 
-// NewClient initializes and returns a new instance of ShardedClient.
-func NewClient(cfg *Configuration, tlsConfig *tls.Config) *ShardedClient {
+// newClient initializes a ShardedClient whose connections use tlsConfig. It is
+// reached through NewWithMTLS only, so no client can be built without a client
+// certificate.
+func newClient(cfg *Configuration, tlsConfig *tls.Config) *ShardedClient {
 	cfg = normalizeConfiguration(cfg)
 
 	sc := &ShardedClient{
 		Configuration: *cfg,
-		legacyPayer:   payerFromJwtToken(cfg.JwtToken),
 	}
 
 	for _, shardAddr := range strings.Split(cfg.Addrs, ",") {

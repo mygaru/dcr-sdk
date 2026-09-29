@@ -1,18 +1,8 @@
 # test-cloud
 
-`cmd/test-cloud` runs the SDK test RPC cloud. It uses the shared `internal/testcloud` implementation, so SDK tests and the command exercise the same Auth, Target, and Report handlers.
+`cmd/test-cloud` runs the SDK test RPC cloud. It uses the shared `internal/testcloud` implementation, so SDK tests and the command exercise the same Target and Report handlers.
 
-Run plaintext mode for legacy JWT authentication:
-
-```sh
-go run ./cmd/test-cloud \
-  -listenAddr 127.0.0.1:7943 \
-  -serverID 1024
-```
-
-In plaintext mode, clients must call `contract.Auth` first. The test JWT is simply a UUID string stored in the request body.
-
-Run mTLS mode:
+Like the cloud, it serves mTLS connections only: the server certificate, its key and the CA of the client certificates are required, and a request on a connection that did not present a client certificate is refused with `UNAUTHORIZED`.
 
 ```sh
 go run ./cmd/test-cloud \
@@ -22,8 +12,6 @@ go run ./cmd/test-cloud \
   -tlsKey ./certs/server-key.pem \
   -clientCA ./certs/client-ca.pem
 ```
-
-When mTLS is enabled, the same server can still accept legacy plaintext clients. mTLS clients are authenticated during the TLS handshake, so they do not need to call `contract.Auth`.
 
 Enable OCSP checks for mTLS client certificates:
 

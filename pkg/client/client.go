@@ -12,15 +12,6 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// ErrorUnauthorized was returned when the connection-level contract.Auth
-// handshake was rejected.
-//
-// Deprecated: the SDK no longer authenticates connections; the payer travels in
-// every request instead. An unauthorized payer is now reported by the cloud as
-// base.RPCServerResponseCode_UNAUTHORIZED on the call itself. Kept so that
-// existing error handling still compiles.
-var ErrorUnauthorized = errors.New("unauthorized")
-
 type client struct {
 	// maxRequestDuration specifies the maximum duration allowed for a single request to complete before timing out.
 	maxRequestDuration time.Duration

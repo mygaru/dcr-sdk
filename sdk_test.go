@@ -1,18 +1,9 @@
 package dcr_sdk
 
 import (
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
-	"crypto/tls"
 	"crypto/x509"
-	"crypto/x509/pkix"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"math/big"
-	"net"
 	"testing"
 	"time"
 
@@ -20,7 +11,6 @@ import (
 	"gitlab.adtelligent.com/awesome/mtls"
 	base "github.com/mygaru/dcr-sdk/gen/base1"
 	"github.com/mygaru/dcr-sdk/internal/testcloud"
-	"github.com/mygaru/dcr-sdk/pkg/serverauth"
 
 	"github.com/mygaru/dcr-sdk/pkg/client"
 )
@@ -38,11 +28,35 @@ func getTestClient(t *testing.T) *client.ShardedClient {
 	return newTestClient(server.Addr(), MaximumSimultaneousConnections)
 }
 
+// testCerts is the PKI every test client and test cloud share: the cloud
+// serves mTLS only, so there is no test without certificates.
+var testCerts = func() *testcloud.Certificates {
+	certs, err := testcloud.NewCertificates()
+	if err != nil {
+		panic(fmt.Sprintf("generate test certificates: %v", err))
+	}
+	return certs
+}()
+
+func testMTLSConfig() MTLSConfig {
+	return MTLSConfig{
+		CertPEM:         testCerts.ClientCertPEM,
+		KeyPEM:          testCerts.ClientKeyPEM,
+		ServerRootCAs:   testCerts.ServerRoots,
+		ServerName:      testCerts.ServerName,
+		ClientCertRoots: testCerts.ClientRoots,
+	}
+}
+
 func newTestClient(addr string, maximumSimultaneousConnections int) *client.ShardedClient {
-	return New(&client.Configuration{
+	rpc, err := NewWithMTLS(&client.Configuration{
 		Addrs:                          addr,
 		MaximumSimultaneousConnections: maximumSimultaneousConnections,
-	})
+	}, testMTLSConfig())
+	if err != nil {
+		panic(fmt.Sprintf("create test client: %v", err))
+	}
+	return rpc
 }
 
 func TestTargetReturnsTrackingIDAndReportUsesIt(t *testing.T) {
@@ -118,7 +132,7 @@ func TestTargetUsesEveryConnectionInThePool(t *testing.T) {
 }
 
 func TestCallsRejectMissingPayer(t *testing.T) {
-	// No payer on the request and no legacy token: the SDK must refuse locally
+	// No payer on the request: the SDK must refuse locally
 	// rather than send a request the cloud will reject.
 	server := startTestCloud(t, testcloud.Config{ServerID: 1024})
 	rpc := newTestClient(server.Addr(), 1)
@@ -162,72 +176,12 @@ func TestTargetPutsPayerOnTheRequest(t *testing.T) {
 	}
 }
 
-func TestPayerFallsBackToDeprecatedJwtToken(t *testing.T) {
-	// Callers that have not migrated yet keep working: the partner id is taken
-	// from Configuration.JwtToken when the request names no payer.
-	partnerID := uuid.New()
-	server := startTestCloud(t, testcloud.Config{ServerID: 1024})
-	rpc := New(&client.Configuration{
-		Addrs:                          server.Addr(),
-		JwtToken:                       testJwtToken(t, partnerID.String()),
-		MaximumSimultaneousConnections: 1,
-	})
-
-	req := testTargetRequest()
-	req.Match[0].Payer = ""
-	if _, sc, err := rpc.Target(req); err != nil {
-		t.Fatalf("Target: %s: %v", sc, err)
-	}
-	if got := req.GetMatch()[0].GetPayer(); got != partnerID.String() {
-		t.Fatalf("expected payer %s from the legacy token, got %q", partnerID, got)
-	}
-}
-
 func TestNewWithMTLSUsesClientCertificate(t *testing.T) {
-	ca, err := mtls.GenerateCA(mtls.GenerateCAConfig{CN: "dcr-sdk-test-client-ca"})
-	if err != nil {
-		t.Fatalf("generate client CA: %v", err)
-	}
-	clientCert, err := mtls.Generate(mtls.GenerateConfig{
-		CN:   "dcr-sdk-client",
-		UUID: uuid.NewString(),
-		CA:   ca,
-	})
-	if err != nil {
-		t.Fatalf("generate client certificate: %v", err)
-	}
-
-	serverCA, err := mtls.GenerateCA(mtls.GenerateCAConfig{CN: "dcr-sdk-test-server-ca"})
-	if err != nil {
-		t.Fatalf("generate server CA: %v", err)
-	}
-	serverTLSCert, err := newTestServerTLSCertificate(serverCA)
-	if err != nil {
-		t.Fatalf("generate server TLS certificate: %v", err)
-	}
-
-	clientRoots := x509.NewCertPool()
-	clientRoots.AddCert(ca.Cert)
-	serverRoots := x509.NewCertPool()
-	serverRoots.AddCert(serverCA.Cert)
-
-	server := startTestCloud(t, testcloud.Config{
-		TLSConfig: serverauth.NewTLSConfig(&tls.Config{
-			Certificates: []tls.Certificate{serverTLSCert},
-			MinVersion:   tls.VersionTLS12,
-		}, serverauth.MTLSConfig{Roots: clientRoots}),
-	})
-
+	server := startTestCloud(t, testcloud.Config{})
 	rpc, err := NewWithMTLS(&client.Configuration{
 		Addrs:                          server.Addr(),
 		MaximumSimultaneousConnections: 1,
-	}, MTLSConfig{
-		CertPEM:         clientCert.CertPEM,
-		KeyPEM:          clientCert.KeyPEM,
-		ServerRootCAs:   serverRoots,
-		ServerName:      "127.0.0.1",
-		ClientCertRoots: clientRoots,
-	})
+	}, testMTLSConfig())
 	if err != nil {
 		t.Fatalf("create mTLS client: %v", err)
 	}
@@ -238,6 +192,16 @@ func TestNewWithMTLSUsesClientCertificate(t *testing.T) {
 	}
 	if sc != base.RPCServerResponseCode_OK {
 		t.Fatalf("expected status code to be %d, got %d", base.RPCServerResponseCode_OK, sc)
+	}
+	// the test cloud refuses any connection that did not present a certificate
+	if got := server.Unauthorized(); got != 0 {
+		t.Fatalf("expected the connection to be authenticated by its certificate, got %d refused", got)
+	}
+}
+
+func TestNewWithMTLSRejectsMissingCertificate(t *testing.T) {
+	if _, err := NewWithMTLS(nil, MTLSConfig{}); err == nil {
+		t.Fatal("expected an error without a client certificate")
 	}
 }
 
@@ -344,48 +308,23 @@ func TestIsValidTrackingIDChecksFormatOnly(t *testing.T) {
 	}
 }
 
-func TestNewPanicsOnNilConfiguration(t *testing.T) {
-	defer func() {
-		if recover() == nil {
-			t.Fatalf("expected panic")
-		}
-	}()
-	New(nil)
-}
-
-func TestNewWithTLSPanicsOnNilTLSConfig(t *testing.T) {
-	defer func() {
-		if recover() == nil {
-			t.Fatalf("expected panic")
-		}
-	}()
-	NewWithTLS(&client.Configuration{}, nil)
-}
-
-func TestNew(t *testing.T) {
-
+func TestNewWithMTLSDefaults(t *testing.T) {
 	tests := []struct {
 		name       string
 		cfg        *client.Configuration
 		expectAddr string
 	}{
-		{
-			name:       "nil configuration",
-			cfg:        &client.Configuration{},
-			expectAddr: "cloud.mygaru.com:7937",
-		},
-		{
-			name: "addr configuration",
-			cfg: &client.Configuration{
-				Addrs: "anyaddr.here:8080",
-			},
-			expectAddr: "anyaddr.here:8080",
-		},
+		{name: "nil configuration", cfg: nil, expectAddr: "cloud.mygaru.com:7937"},
+		{name: "empty configuration", cfg: &client.Configuration{}, expectAddr: "cloud.mygaru.com:7937"},
+		{name: "addr configuration", cfg: &client.Configuration{Addrs: "anyaddr.here:8080"}, expectAddr: "anyaddr.here:8080"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			sdk := New(tt.cfg)
+			sdk, err := NewWithMTLS(tt.cfg, testMTLSConfig())
+			if err != nil {
+				t.Fatalf("NewWithMTLS: %v", err)
+			}
 			if sdk.Configuration.Addrs != tt.expectAddr {
 				t.Errorf("expected addrs to be %q, got %q", tt.expectAddr, sdk.Configuration.Addrs)
 			}
@@ -407,6 +346,9 @@ func testTargetRequest() *base.TargetRequest {
 func startTestCloud(t *testing.T, cfg testcloud.Config) *testcloud.Server {
 	t.Helper()
 
+	if cfg.TLSConfig == nil {
+		cfg.TLSConfig = testCerts.ServerTLSConfig
+	}
 	server, err := testcloud.Start(cfg)
 	if err != nil {
 		t.Fatalf("start test-cloud: %v", err)
@@ -429,46 +371,6 @@ func nextReport(t *testing.T, server *testcloud.Server) *base.ReportRequest {
 		t.Fatalf("timed out waiting for report request")
 		return nil
 	}
-}
-
-func newTestServerTLSCertificate(ca *mtls.Certificate) (tls.Certificate, error) {
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return tls.Certificate{}, fmt.Errorf("generate server key: %w", err)
-	}
-
-	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
-	if err != nil {
-		return tls.Certificate{}, fmt.Errorf("generate server serial: %w", err)
-	}
-
-	tmpl := &x509.Certificate{
-		SerialNumber: serial,
-		Subject: pkix.Name{
-			CommonName: "127.0.0.1",
-		},
-		NotBefore:             time.Now().Add(-time.Minute),
-		NotAfter:              time.Now().Add(time.Hour),
-		KeyUsage:              x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		BasicConstraintsValid: true,
-		IPAddresses:           []net.IP{net.ParseIP("127.0.0.1")},
-	}
-
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca.Cert, &key.PublicKey, ca.Key)
-	if err != nil {
-		return tls.Certificate{}, fmt.Errorf("create server certificate: %w", err)
-	}
-	leaf, err := x509.ParseCertificate(der)
-	if err != nil {
-		return tls.Certificate{}, fmt.Errorf("parse server certificate: %w", err)
-	}
-
-	return tls.Certificate{
-		Certificate: [][]byte{der},
-		PrivateKey:  key,
-		Leaf:        leaf,
-	}, nil
 }
 
 // TestTargetSurvivesConnectionChurn guards the reason the payer moved into the
@@ -497,23 +399,6 @@ func TestTargetSurvivesConnectionChurn(t *testing.T) {
 	if got := rpc.Reconnects(); got < requests {
 		t.Fatalf("expected at least %d reconnects to be exercised, got %d", requests, got)
 	}
-}
-
-// testJwtToken builds an unsigned JWT-shaped token carrying partner.id, which is
-// all the deprecated Configuration.JwtToken fallback reads.
-func testJwtToken(t *testing.T, partnerID string) []byte {
-	t.Helper()
-
-	payload, err := json.Marshal(map[string]any{
-		"partner": map[string]any{"id": partnerID},
-	})
-	if err != nil {
-		t.Fatalf("marshal claims: %v", err)
-	}
-
-	enc := base64.RawURLEncoding
-	return []byte(enc.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`)) +
-		"." + enc.EncodeToString(payload) + ".signature-not-verified")
 }
 
 // TestReportBillsSeveralClientsInOneCall is the reason the payer moved onto the

@@ -37,7 +37,7 @@ func TestNewClientNormalizesAddrs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client := NewClient(&Configuration{Addrs: tt.addrs}, nil)
+			client := newClient(&Configuration{Addrs: tt.addrs}, nil)
 			if client.Configuration.Addrs != tt.expectAddr {
 				t.Fatalf("expected addrs to be %q, got %q", tt.expectAddr, client.Configuration.Addrs)
 			}
@@ -48,7 +48,6 @@ func TestNewClientNormalizesAddrs(t *testing.T) {
 func TestNewClientDoesNotMutateConfiguration(t *testing.T) {
 	cfg := &Configuration{
 		Addrs:                          " host-a:1, ,host-b:2 ",
-		JwtToken:                       []byte("jwt-token"),
 		MaxRequestDuration:             -time.Second,
 		MaxDialDuration:                -time.Second,
 		MaxPendingRequests:             -1,
@@ -57,7 +56,7 @@ func TestNewClientDoesNotMutateConfiguration(t *testing.T) {
 		MaximumSimultaneousConnections: -1,
 	}
 
-	client := NewClient(cfg, nil)
+	client := newClient(cfg, nil)
 	if cfg.Addrs != " host-a:1, ,host-b:2 " {
 		t.Fatalf("expected original addrs to remain unchanged, got %q", cfg.Addrs)
 	}

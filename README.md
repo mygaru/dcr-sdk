@@ -101,11 +101,23 @@ the Makefile must stay in sync with this value.
 
 ## Public API
 
-The root package exposes two constructors:
+A client is created with one constructor, `NewWithMTLS(cfg, mtlsConfig)`, from
+the PEM-encoded client certificate and key (`client.NewWithMTLS` is the same
+function). The cloud accepts mTLS connections only: there is no plaintext or
+token-authenticated client any more.
 
-- `New(cfg)` — creates a client for tests, debug flows, or non-TLS environments (option for myGaru developers)
-- `NewWithTLS(cfg, tlsConfig)` — creates a client for production mTLS communication
-- **when certificates handling (GetClientCertificate) will be implemented, this constructor can be removed from the codebase** ~~`NewWithMTLS(cfg, mtlsConfig)` — creates a client from PEM-encoded mTLS certificate material~~
+```go
+cli, err := dcr.NewWithMTLS(&client.Configuration{
+    Addrs: "cloud.mygaru.com:7937",
+}, dcr.MTLSConfig{
+    CertPEM:    certPEM, // may include the intermediate certificates
+    KeyPEM:     keyPEM,
+    ServerName: "cloud.mygaru.com",
+})
+```
+
+The client certificate is validated at construction, so a certificate the cloud
+would refuse fails `NewWithMTLS` rather than every dial.
 
 ## Payer identity
 
@@ -119,9 +131,9 @@ be a partner that took part in the Target that produced the tracking id, it pays
 for the OTP decryption, and it is billed for report rules that name no client of
 their own.
 
-A rule that leaves the payer empty falls back to `ReportRequest.payer` for a
-report, and to `partner.id` of the deprecated `Configuration.JwtToken` for a
-Target. If nothing resolves, the call fails locally with
+A report rule that leaves the payer empty falls back to `ReportRequest.payer`;
+a Target match rule has nothing to fall back to. If nothing resolves, the call
+fails locally with
 `client.ErrorPayerRequired` and `INVALID_REQUEST` - nothing is sent.
 
 ```go
@@ -184,15 +196,16 @@ reconnect - idle timeout, load-balancer reset, DNS rebalance - produced such
 failures.
 
 A request that carries its payer cannot lose it to a reconnect, so the SDK no
-longer authenticates connections at all and `Configuration.DisableAuth` is a
-no-op. Transport-level authentication moves to mTLS per platform.
+longer authenticates connections at all. The connection itself is authenticated
+by the partner's client certificate (mTLS), and `Configuration.JwtToken`,
+`Configuration.DisableAuth` and `client.ErrorUnauthorized` are gone.
 
 ---
 
 ## Production setup
 Production connections require **mTLS**. Initially, client certificate is provided by myGaru using out of band secure channels. Certificate renewal is automated using an example in `cmd/client-example/main.go`.
 
-Use `dcr.NewWithTLS` to create sdkClient as shown in the `cmd/client-example/main.go` example.
+Use `dcr.NewWithMTLS` to create the client (see [Public API](#public-api)).
 
 ## Configuration
 
@@ -203,12 +216,6 @@ type Configuration struct {
     // Comma-separated list of shard addresses.
     // By default: cloud.mygaru.com:7937
     Addrs string
-
-    // Deprecated: JWT token that used to authenticate the connection.
-    // Connection authentication has been removed - pass the payer to
-    // Target/Report instead. Still read once, at construction, to recover
-    // partner.id as a fallback payer.
-    JwtToken []byte
 
     //Maximum allowed duration for a request.
     //If zero, a default timeout is used.

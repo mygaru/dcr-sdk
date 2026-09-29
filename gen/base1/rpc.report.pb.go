@@ -37,9 +37,6 @@ type ReportRequest struct {
 	// check and the write produced an UNAUTHORIZED "payer identity is missing" for
 	// a request that was otherwise valid. A request that carries its payer cannot
 	// lose it to a reconnect.
-	//
-	// When left empty the SDK fills it in from the partner id of the deprecated
-	// Configuration.JwtToken.
 	Payer string `protobuf:"bytes,5,opt,name=payer" json:"payer,omitempty"`
 	// Tracking id for BE reporting
 	TrackingId []byte `protobuf:"bytes,1,opt,name=tracking_id,json=trackingId" json:"tracking_id,omitempty"`

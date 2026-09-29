@@ -1,11 +1,8 @@
 # serverauth
 
-`serverauth` keeps RPC connection identity in one place for both legacy `contract.Auth` and mTLS clients.
+`serverauth` keeps the RPC connection identity: the partner UUID read from the client certificate of an mTLS connection.
 
-`fastrpc` can accept plaintext and TLS clients on the same listener when `Server.TLSConfig` is set. The library first exchanges its own handshake, then starts TLS only for clients that requested it. Because of that, a single server can support:
-
-- old clients: plaintext connection, then explicit `contract.Auth` with JWT;
-- new clients: mTLS connection, UUID read from the client certificate.
+The SDK connects with mTLS only. `fastrpc` still accepts a plaintext client on a listener whose `Server.TLSConfig` is set - it exchanges its own handshake first and starts TLS only for clients that ask for it - so a server that serves mTLS only has to refuse the requests of a connection that carries no identity (see below).
 
 ## Server setup
 
@@ -40,49 +37,26 @@ server := &fastrpc.Server{
 go server.Serve(ln)
 ```
 
-## Legacy `contract.Auth`
-
-Keep the old auth handler, but write the UUID through the package helper:
-
-```go
-func Auth(ctx *contract.RequestCtx) {
-	partnerID, err := oauth.ValidateTokenString(string(ctx.Request.Value()), oauth.ScopeCloudSegmentsTouch)
-	if err != nil {
-		handlers.WriteError(ctx, base.RPCServerResponseCode_UNAUTHORIZED, err)
-		return
-	}
-
-	payer := core.Partners.GetUUID(partnerID)
-	if payer == nil {
-		handlers.WriteError(ctx, base.RPCServerResponseCode_UNAUTHORIZED, fmt.Errorf("partner %s not found", partnerID))
-		return
-	}
-
-	if err := serverauth.SetUUID(ctx.Conn(), payer.ID); err != nil {
-		handlers.WriteError(ctx, base.RPCServerResponseCode_TECH_ERROR, err)
-		return
-	}
-
-	ctx.Response.SetStatusCode(base.RPCServerResponseCode_OK)
-}
-```
-
 ## Business handlers
 
-Every handler can read the authenticated UUID the same way, regardless of whether it came from JWT auth or mTLS:
+A connection that completed the mTLS handshake carries the certificate's UUID; a plaintext one carries none and is refused:
 
 ```go
 func Target(ctx *contract.RequestCtx) {
-	payerID, ok := serverauth.GetUUID(ctx.Conn())
+	// the partner the certificate was issued to; the payer itself travels in
+	// the request
+	partnerID, ok := serverauth.GetUUID(ctx.Conn())
 	if !ok {
-		handlers.WriteError(ctx, base.RPCServerResponseCode_UNAUTHORIZED, fmt.Errorf("unauthorized"))
+		handlers.WriteError(ctx, base.RPCServerResponseCode_UNAUTHORIZED, fmt.Errorf("mTLS client certificate is required"))
 		return
 	}
 
-	_ = payerID
+	_ = partnerID
 }
 ```
 
 ## Notes
 
-Use one `fastrpc.Server` and one port when both old SDK clients and new mTLS clients should be accepted. Plaintext clients still need to call `contract.Auth`; mTLS clients can be treated as authenticated immediately after the TLS handshake.
+`SetUUID` binds an identity to a connection by other means. It is what the
+deprecated per-connection `contract.Auth` handshake of pre-mTLS SDKs used, and
+goes with it.

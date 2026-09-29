@@ -2,7 +2,6 @@ package testcloud
 
 import (
 	"crypto/tls"
-	"encoding/binary"
 	"fmt"
 	"net"
 	"sync/atomic"
@@ -21,12 +20,11 @@ import (
 type Config struct {
 	// ListenAddr is used by ListenAndServe and Start. Start defaults to 127.0.0.1:0.
 	ListenAddr string
-	// ServerID is encoded into generated tracking IDs and auth responses. Defaults to 1024.
+	// ServerID is encoded into generated tracking IDs. Defaults to 1024.
 	ServerID uint16
-	// TLSConfig enables fastrpc TLS/mTLS support. Nil keeps the server plaintext-only.
+	// TLSConfig is the server's mTLS config, from serverauth.NewTLSConfig. It is
+	// required: like the cloud, the test cloud serves mTLS connections only.
 	TLSConfig *tls.Config
-	// AuthStatusCode lets tests force contract.Auth failures. UNKNOWN means OK.
-	AuthStatusCode base.RPCServerResponseCode
 	// TargetStatus lets tests force Target failures. UNKNOWN means OK.
 	TargetStatus base.RPCServerResponseCode
 	// ReportBuffer controls how many Report requests are retained for tests. Defaults to 8.
@@ -34,7 +32,7 @@ type Config struct {
 	// DropConnAfterRequest closes the connection shortly after every successful
 	// Target/Report response. It emulates the connection churn a real client sees
 	// (HAProxy idle timeout, DNS rebalance, node restart) and exercises the
-	// SDK's per-connection re-authentication.
+	// SDK's reconnects.
 	DropConnAfterRequest bool
 }
 
@@ -47,23 +45,23 @@ type Server struct {
 	reports chan *base.ReportRequest
 	counter atomic.Uint64
 
-	// unauthorized counts Target/Report requests that arrived on a connection
-	// that never ran contract.Auth - the test-cloud equivalent of the cloud's
-	// "payer identity is missing".
+	// unauthorized counts Target/Report requests refused for a missing payer
+	// or a connection without a client certificate.
 	unauthorized atomic.Uint64
 }
 
-// Unauthorized returns the number of Target/Report requests received on
-// unauthenticated connections.
+// Unauthorized returns the number of Target/Report requests refused for a
+// missing payer or a connection without a client certificate.
 func (s *Server) Unauthorized() uint64 {
 	return s.unauthorized.Load()
 }
 
-// requestPayer mirrors the cloud's payer resolution: the payer carried by the
-// request wins, and a request without one falls back to the deprecated
-// per-connection contract.Auth identity. It counts the requests that carry
-// neither, which is what the cloud reports as "payer identity is missing".
-func (s *Server) requestPayer(ctx *contract.RequestCtx, requestPayer string) (uuid.UUID, error) {
+// errNoTLSConfig is returned by Start and ListenAndServe without Config.TLSConfig.
+var errNoTLSConfig = fmt.Errorf("test-cloud serves mTLS only: TLSConfig is required")
+
+// requestPayer resolves the payer a request names. The payer travels in every
+// request; a request without one is refused.
+func (s *Server) requestPayer(requestPayer string) (uuid.UUID, error) {
 	if requestPayer != "" {
 		payerID, err := uuid.Parse(requestPayer)
 		if err != nil {
@@ -74,12 +72,8 @@ func (s *Server) requestPayer(ctx *contract.RequestCtx, requestPayer string) (uu
 		}
 	}
 
-	if payerID, ok := serverauth.GetUUID(ctx.Conn()); ok {
-		return payerID, nil
-	}
-
 	s.unauthorized.Add(1)
-	return uuid.Nil, fmt.Errorf("payer identity is missing")
+	return uuid.Nil, fmt.Errorf("payer is missing")
 }
 
 // dropConn closes conn after a short delay, emulating an idle timeout or a
@@ -97,6 +91,9 @@ func (s *Server) dropConn(conn net.Conn) {
 // Start starts a test-cloud RPC server in a goroutine.
 func Start(cfg Config) (*Server, error) {
 	cfg = normalizeConfig(cfg)
+	if cfg.TLSConfig == nil {
+		return nil, errNoTLSConfig
+	}
 	ln, err := net.Listen("tcp4", cfg.ListenAddr)
 	if err != nil {
 		return nil, fmt.Errorf("listen on %q: %w", cfg.ListenAddr, err)
@@ -114,6 +111,9 @@ func Start(cfg Config) (*Server, error) {
 // ListenAndServe runs a test-cloud RPC server until the listener is closed.
 func ListenAndServe(cfg Config) error {
 	cfg = normalizeConfig(cfg)
+	if cfg.TLSConfig == nil {
+		return errNoTLSConfig
+	}
 	ln, err := net.Listen("tcp4", cfg.ListenAddr)
 	if err != nil {
 		return fmt.Errorf("listen on %q: %w", cfg.ListenAddr, err)
@@ -192,9 +192,6 @@ func normalizeConfig(cfg Config) Config {
 	if cfg.ServerID == 0 {
 		cfg.ServerID = 1024
 	}
-	if cfg.AuthStatusCode == base.RPCServerResponseCode_UNKNOWN {
-		cfg.AuthStatusCode = base.RPCServerResponseCode_OK
-	}
 	if cfg.TargetStatus == base.RPCServerResponseCode_UNKNOWN {
 		cfg.TargetStatus = base.RPCServerResponseCode_OK
 	}
@@ -207,9 +204,15 @@ func normalizeConfig(cfg Config) Config {
 func (s *Server) handle(ctxv fastrpc.HandlerCtx) fastrpc.HandlerCtx {
 	ctx := ctxv.(*contract.RequestCtx)
 
+	// fastrpc accepts a plaintext client on a TLS server too; only a connection
+	// that completed the mTLS handshake carries the certificate's identity.
+	if _, ok := serverauth.GetUUID(ctx.Conn()); !ok {
+		s.unauthorized.Add(1)
+		writeError(ctx, base.RPCServerResponseCode_UNAUTHORIZED, fmt.Errorf("mTLS client certificate is required"))
+		return ctxv
+	}
+
 	switch ctx.Request.GetName() {
-	case contract.Auth:
-		s.handleAuth(ctx)
 	case contract.Target:
 		s.handleTarget(ctx)
 	case contract.Report:
@@ -218,41 +221,6 @@ func (s *Server) handle(ctxv fastrpc.HandlerCtx) fastrpc.HandlerCtx {
 		writeError(ctx, base.RPCServerResponseCode_INVALID_REQUEST, fmt.Errorf("unsupported request name: %s", ctx.Request.GetName()))
 	}
 	return ctxv
-}
-
-func (s *Server) handleAuth(ctx *contract.RequestCtx) {
-	if _, ok := serverauth.GetUUID(ctx.Conn()); ok {
-		writeError(ctx, base.RPCServerResponseCode_INVALID_REQUEST, fmt.Errorf("connection is already authenticated"))
-		return
-	}
-
-	// Example for real auth failure handling:
-	// if unauthorized {
-	// 	writeError(ctx, base.RPCServerResponseCode_UNAUTHORIZED, fmt.Errorf("unauthorized"))
-	// 	_ = ctx.Conn().Close()
-	// 	return
-	// }
-
-	if s.cfg.AuthStatusCode != base.RPCServerResponseCode_OK {
-		writeError(ctx, s.cfg.AuthStatusCode, fmt.Errorf("unauthorized"))
-		return
-	}
-
-	payerID, err := uuid.Parse(string(ctx.Request.Value()))
-	if err != nil {
-		writeError(ctx, base.RPCServerResponseCode_UNAUTHORIZED, fmt.Errorf("invalid test JWT UUID: %w", err))
-		return
-	}
-	if err := serverauth.SetUUID(ctx.Conn(), payerID); err != nil {
-		writeError(ctx, base.RPCServerResponseCode_TECH_ERROR, err)
-		return
-	}
-
-	ctx.Response.SetStatusCode(base.RPCServerResponseCode_OK)
-	buf := ctx.Response.SwapValue(nil)
-	buf = binary.LittleEndian.AppendUint16(buf, s.cfg.ServerID)
-	buf = append(buf, payerID[:]...)
-	ctx.Response.SwapValue(buf)
 }
 
 func (s *Server) handleTarget(ctx *contract.RequestCtx) {
@@ -267,7 +235,7 @@ func (s *Server) handleTarget(ctx *contract.RequestCtx) {
 	// The payer lives on the match rules: each one names the client whose
 	// segment access is checked. A request with no match rules needs no payer.
 	for i, rule := range req.GetMatch() {
-		if _, err := s.requestPayer(ctx, rule.GetPayer()); err != nil {
+		if _, err := s.requestPayer(rule.GetPayer()); err != nil {
 			writeError(ctx, base.RPCServerResponseCode_UNAUTHORIZED, fmt.Errorf("match rule %d: %w", i, err))
 			return
 		}
@@ -302,14 +270,14 @@ func (s *Server) handleReport(ctx *contract.RequestCtx) {
 		return
 	}
 
-	if _, err := s.requestPayer(ctx, req.GetPayer()); err != nil {
+	if _, err := s.requestPayer(req.GetPayer()); err != nil {
 		writeError(ctx, base.RPCServerResponseCode_UNAUTHORIZED, err)
 		return
 	}
 
 	// Every rule names its own billed client, so each one has to resolve too.
 	for i, rule := range req.GetRules() {
-		if _, err := s.requestPayer(ctx, rule.GetPayer()); err != nil {
+		if _, err := s.requestPayer(rule.GetPayer()); err != nil {
 			writeError(ctx, base.RPCServerResponseCode_UNAUTHORIZED, fmt.Errorf("rule %d: %w", i, err))
 			return
 		}
