@@ -22,11 +22,26 @@ message Context {
   bytes ua = 2;   // User agent string
   bytes url = 3;  // Current URL
   bytes referrer = 4;     // Referrer URL
+
+  // Store bundle id of the app the request came from, for in-app traffic.
+  //
+  // The counterpart of url: a web request names the page it is on, an in-app
+  // request names the application, and nothing carries both. Which of the two
+  // is set is therefore also what says whether the request is web or in-app -
+  // there is no separate environment field, because a request that has neither
+  // would have to lie in it.
+  bytes bundle = 5;
 }
 
 message UID {
   bytes id = 1; // The identifier
   Type type = 2; // The type of the ID
+
+  // Id space an EXTERNAL_UID belongs to: who issued it, not who sends it
+  // (e.g. "adtelligent.com"). The same string issued by two sources is two
+  // different users, so the source is part of what identifies one. Ignored for
+  // every other type. Empty means "adtelligent.com".
+  string source = 3;
 
   // Type of deterministic identifier
   enum Type {

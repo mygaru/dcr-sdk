@@ -79,11 +79,19 @@ func (UID_Type) EnumDescriptor() ([]byte, []int) {
 
 // Represents contextual information for the user request
 type Context struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Ip            []byte                 `protobuf:"bytes,1,opt,name=ip" json:"ip,omitempty"`             // IP address of the user
-	Ua            []byte                 `protobuf:"bytes,2,opt,name=ua" json:"ua,omitempty"`             // User agent string
-	Url           []byte                 `protobuf:"bytes,3,opt,name=url" json:"url,omitempty"`           // Current URL
-	Referrer      []byte                 `protobuf:"bytes,4,opt,name=referrer" json:"referrer,omitempty"` // Referrer URL
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Ip       []byte                 `protobuf:"bytes,1,opt,name=ip" json:"ip,omitempty"`             // IP address of the user
+	Ua       []byte                 `protobuf:"bytes,2,opt,name=ua" json:"ua,omitempty"`             // User agent string
+	Url      []byte                 `protobuf:"bytes,3,opt,name=url" json:"url,omitempty"`           // Current URL
+	Referrer []byte                 `protobuf:"bytes,4,opt,name=referrer" json:"referrer,omitempty"` // Referrer URL
+	// Store bundle id of the app the request came from, for in-app traffic.
+	//
+	// The counterpart of url: a web request names the page it is on, an in-app
+	// request names the application, and nothing carries both. Which of the two
+	// is set is therefore also what says whether the request is web or in-app -
+	// there is no separate environment field, because a request that has neither
+	// would have to lie in it.
+	Bundle        []byte `protobuf:"bytes,5,opt,name=bundle" json:"bundle,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -146,10 +154,22 @@ func (x *Context) GetReferrer() []byte {
 	return nil
 }
 
+func (x *Context) GetBundle() []byte {
+	if x != nil {
+		return x.Bundle
+	}
+	return nil
+}
+
 type UID struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            []byte                 `protobuf:"bytes,1,opt,name=id" json:"id,omitempty"`                         // The identifier
-	Type          UID_Type               `protobuf:"varint,2,opt,name=type,enum=user.UID_Type" json:"type,omitempty"` // The type of the ID
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    []byte                 `protobuf:"bytes,1,opt,name=id" json:"id,omitempty"`                         // The identifier
+	Type  UID_Type               `protobuf:"varint,2,opt,name=type,enum=user.UID_Type" json:"type,omitempty"` // The type of the ID
+	// Id space an EXTERNAL_UID belongs to: who issued it, not who sends it
+	// (e.g. "adtelligent.com"). The same string issued by two sources is two
+	// different users, so the source is part of what identifies one. Ignored for
+	// every other type. Empty means "adtelligent.com".
+	Source        string `protobuf:"bytes,3,opt,name=source" json:"source,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -198,19 +218,28 @@ func (x *UID) GetType() UID_Type {
 	return UID_OTP
 }
 
+func (x *UID) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
 var File_base_v1_user_proto protoreflect.FileDescriptor
 
 const file_base_v1_user_proto_rawDesc = "" +
 	"\n" +
-	"\x12base/v1/user.proto\x12\x04user\"W\n" +
+	"\x12base/v1/user.proto\x12\x04user\"o\n" +
 	"\aContext\x12\x0e\n" +
 	"\x02ip\x18\x01 \x01(\fR\x02ip\x12\x0e\n" +
 	"\x02ua\x18\x02 \x01(\fR\x02ua\x12\x10\n" +
 	"\x03url\x18\x03 \x01(\fR\x03url\x12\x1a\n" +
-	"\breferrer\x18\x04 \x01(\fR\breferrer\"\x95\x01\n" +
+	"\breferrer\x18\x04 \x01(\fR\breferrer\x12\x16\n" +
+	"\x06bundle\x18\x05 \x01(\fR\x06bundle\"\xad\x01\n" +
 	"\x03UID\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\fR\x02id\x12\"\n" +
-	"\x04type\x18\x02 \x01(\x0e2\x0e.user.UID.TypeR\x04type\"Z\n" +
+	"\x04type\x18\x02 \x01(\x0e2\x0e.user.UID.TypeR\x04type\x12\x16\n" +
+	"\x06source\x18\x03 \x01(\tR\x06source\"Z\n" +
 	"\x04Type\x12\a\n" +
 	"\x03OTP\x10\x00\x12\x0f\n" +
 	"\vPARTNER_UID\x10\x02\x12\r\n" +

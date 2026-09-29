@@ -311,6 +311,11 @@ The SDK client (`*client.ShardedClient`) exposes two primary methods: `Target` a
 
 > **Note on Frequency Capping:** Frequency capping parameters in `TargetRequest` (`Frequency` field) are **currently not implemented on the backend side**. Passing frequency rules will be safely ignored by the server at this time.
 
+An `EXTERNAL_UID` names its `Source`: the id space it belongs to, i.e. who
+issued the uid, not who sends it. The same string from two sources is two
+different users. A uid without a source is taken as `adtelligent.com`. `Source`
+is ignored for every other identifier type.
+
 `Target` returns a 16-byte `TrackingId` needed for subsequent event reporting (via `Report` method)
 
 ```go
@@ -324,7 +329,7 @@ req := &base.TargetRequest{
    Uids: []*base.UID{
       {Id: []byte("SOME_OTP_HERE"), Type: base.UID_OTP},
       {Id: []byte("019d2555-7874-7e9d-a284-9b45a0b2f165"), Type: base.UID_DEVICE_ID},
-      {Id: []byte("AAABBBCCCDDDEEE"), Type: base.UID_EXTERNAL_UID},
+      {Id: []byte("AAABBBCCCDDDEEE"), Type: base.UID_EXTERNAL_UID, Source: "partner.example"},
    },
    // List of segments to be checked
    Match: []*base.Match_Rule{
