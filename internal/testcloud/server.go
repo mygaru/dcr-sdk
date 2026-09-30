@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -25,6 +26,9 @@ type Config struct {
 	// TLSConfig is the server's mTLS config, from serverauth.NewTLSConfig. It is
 	// required: like the cloud, the test cloud serves mTLS connections only.
 	TLSConfig *tls.Config
+	// TouchPartners are the partners (client certificate UUIDs) granted Touch;
+	// everyone else gets FORBIDDEN, as from the cloud.
+	TouchPartners []uuid.UUID
 	// TargetStatus lets tests force Target failures. UNKNOWN means OK.
 	TargetStatus base.RPCServerResponseCode
 	// ReportBuffer controls how many Report requests are retained for tests. Defaults to 8.
@@ -206,7 +210,8 @@ func (s *Server) handle(ctxv fastrpc.HandlerCtx) fastrpc.HandlerCtx {
 
 	// fastrpc accepts a plaintext client on a TLS server too; only a connection
 	// that completed the mTLS handshake carries the certificate's identity.
-	if _, ok := serverauth.GetUUID(ctx.Conn()); !ok {
+	partnerID, ok := serverauth.GetUUID(ctx.Conn())
+	if !ok {
 		s.unauthorized.Add(1)
 		writeError(ctx, base.RPCServerResponseCode_UNAUTHORIZED, fmt.Errorf("mTLS client certificate is required"))
 		return ctxv
@@ -217,6 +222,8 @@ func (s *Server) handle(ctxv fastrpc.HandlerCtx) fastrpc.HandlerCtx {
 		s.handleTarget(ctx)
 	case contract.Report:
 		s.handleReport(ctx)
+	case contract.Touch:
+		s.handleTouch(ctx, partnerID)
 	default:
 		writeError(ctx, base.RPCServerResponseCode_INVALID_REQUEST, fmt.Errorf("unsupported request name: %s", ctx.Request.GetName()))
 	}
@@ -288,6 +295,28 @@ func (s *Server) handleReport(ctx *contract.RequestCtx) {
 	default:
 	}
 	ctx.Response.SetStatusCode(base.RPCServerResponseCode_OK)
+}
+
+// TouchUserID is the user id the test cloud answers every granted Touch with.
+const TouchUserID = "test-cloud-user"
+
+func (s *Server) handleTouch(ctx *contract.RequestCtx, partnerID uuid.UUID) {
+	if !slices.Contains(s.cfg.TouchPartners, partnerID) {
+		writeError(ctx, base.RPCServerResponseCode_FORBIDDEN, fmt.Errorf("touch is not granted to %s", partnerID))
+		return
+	}
+
+	req := &base.TouchRequest{}
+	if err := proto.Unmarshal(ctx.Request.Value(), req); err != nil {
+		writeError(ctx, base.RPCServerResponseCode_INVALID_REQUEST, fmt.Errorf("cannot unmarshal touch request: %w", err))
+		return
+	}
+
+	writeProto(ctx, base.RPCServerResponseCode_OK, &base.TouchResponse{
+		UserId:   []byte(TouchUserID),
+		Accuracy: base.TouchResponse_Reliable,
+		Label:    []byte("test-telecom"),
+	})
 }
 
 func (s *Server) nextTrackingID() []byte {

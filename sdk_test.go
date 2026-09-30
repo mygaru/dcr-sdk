@@ -536,3 +536,30 @@ func TestTargetWithoutMatchRulesNeedsNoPayer(t *testing.T) {
 		t.Fatal("expected a tracking id")
 	}
 }
+
+func TestTouchIdentifiesTheUserWhenGranted(t *testing.T) {
+	server := startTestCloud(t, testcloud.Config{TouchPartners: []uuid.UUID{testCerts.ClientID}})
+	rpc := newTestClient(server.Addr(), 1)
+
+	resp, sc, err := rpc.Touch(&base.TouchRequest{
+		Uids: []*base.UID{{Id: []byte(uuid.NewString()), Type: base.UID_DEVICE_ID}},
+	})
+	if err != nil || sc != base.RPCServerResponseCode_OK {
+		t.Fatalf("Touch = %s, %v; want OK", sc, err)
+	}
+	if string(resp.GetUserId()) != testcloud.TouchUserID || resp.GetAccuracy() != base.TouchResponse_Reliable {
+		t.Fatalf("Touch response = %v", resp)
+	}
+}
+
+func TestTouchIsForbiddenUnlessGranted(t *testing.T) {
+	server := startTestCloud(t, testcloud.Config{TouchPartners: []uuid.UUID{uuid.New()}})
+	rpc := newTestClient(server.Addr(), 1)
+
+	resp, sc, err := rpc.Touch(&base.TouchRequest{
+		Uids: []*base.UID{{Id: []byte(uuid.NewString()), Type: base.UID_DEVICE_ID}},
+	})
+	if err == nil || sc != base.RPCServerResponseCode_FORBIDDEN || resp != nil {
+		t.Fatalf("Touch = %v, %s, %v; want FORBIDDEN", resp, sc, err)
+	}
+}

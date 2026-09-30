@@ -131,6 +131,21 @@ func (sc *ShardedClient) Report(req *base.ReportRequest) (base.RPCServerResponse
 	return statusCode, err
 }
 
+// Touch identifies the user of a request without matching any segment.
+//
+// For internal use: it marks traffic a third-party partner sees, and the cloud
+// grants it per client certificate - any other caller gets FORBIDDEN. The
+// identifiers are resolved as for Target; the response carries the user's id
+// (empty when unidentified), how reliable that is, and a label such as the
+// telecom the user is a subscriber of. Touch names no payer and bills nothing.
+func (sc *ShardedClient) Touch(req *base.TouchRequest) (*base.TouchResponse, base.RPCServerResponseCode, error) {
+	res, statusCode, err := sc.getGroup().getClient().doUnary(req, &base.TouchResponse{}, contract.Touch)
+	if nil != err {
+		return nil, statusCode, err
+	}
+	return res.(*base.TouchResponse), statusCode, nil
+}
+
 // applyPayers resolves the request-level payer and hands it to stamp, which
 // writes it onto the request and onto every rule that names no payer of its own.
 //

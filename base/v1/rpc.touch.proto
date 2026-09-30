@@ -1,0 +1,42 @@
+edition = "2023";
+
+import "base/v1/rpc.target.proto";
+import "base/v1/user.proto";
+
+option java_outer_classname = "myGaruSDK";
+// NOTE: go_package intentionally names the PUBLIC module path
+// (github.com/mygaru/dcr-sdk), not this repository's own module path; see the
+// same note in rpc.target.proto and PROTO_GO_MODULE in the Makefile.
+option go_package = "github.com/mygaru/dcr-sdk/gen/base1;base";
+
+option features.field_presence = IMPLICIT;
+
+package touch;
+
+// Touch identifies the user of a request without matching any segment: it
+// resolves the identifiers the way Target does and answers who the user is.
+// For marking traffic seen by a third party; granted per partner.
+message TouchRequest {
+  // List of user identifiers currently available.
+  repeated user.UID uids = 1;
+
+  user.Context context = 5;
+
+  target.TargetRequest.Inventory inventory = 6;
+}
+
+message TouchResponse {
+  // The internet user's id; empty when the user could not be identified.
+  bytes user_id = 1;
+
+  Accuracy accuracy = 2;
+
+  // Additional information about the user, e.g. the name of the telecom they
+  // are a subscriber of.
+  bytes label = 3;
+
+  enum Accuracy {
+    Ambiguous = 0;
+    Reliable = 1;
+  }
+}

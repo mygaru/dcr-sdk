@@ -154,6 +154,8 @@ const (
 	RPCServerResponseCode_INVALID_REQUEST     RPCServerResponseCode = 5
 	RPCServerResponseCode_TECH_ERROR          RPCServerResponseCode = 6
 	RPCServerResponseCode_NETWORK_ERROR       RPCServerResponseCode = 7
+	// The caller is authenticated but not granted this request.
+	RPCServerResponseCode_FORBIDDEN RPCServerResponseCode = 8
 )
 
 // Enum value maps for RPCServerResponseCode.
@@ -167,6 +169,7 @@ var (
 		5: "INVALID_REQUEST",
 		6: "TECH_ERROR",
 		7: "NETWORK_ERROR",
+		8: "FORBIDDEN",
 	}
 	RPCServerResponseCode_value = map[string]int32{
 		"UNKNOWN":             0,
@@ -177,6 +180,7 @@ var (
 		"INVALID_REQUEST":     5,
 		"TECH_ERROR":          6,
 		"NETWORK_ERROR":       7,
+		"FORBIDDEN":           8,
 	}
 )
 
@@ -226,7 +230,7 @@ const file_base_v1_common_proto_rawDesc = "" +
 	"\x10EVENT_TYPE_CLICK\x10\x04\x12\x13\n" +
 	"\x0fEVENT_TYPE_WINS\x10\x05\x12\x11\n" +
 	"\rEVENT_TYPE_AT\x10\x06\x12\x13\n" +
-	"\x0fEVENT_TYPE_BIDS\x10\a*\x9d\x01\n" +
+	"\x0fEVENT_TYPE_BIDS\x10\a*\xac\x01\n" +
 	"\x15RPCServerResponseCode\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\x06\n" +
 	"\x02OK\x10\x01\x12\x10\n" +
@@ -236,7 +240,8 @@ const file_base_v1_common_proto_rawDesc = "" +
 	"\x0fINVALID_REQUEST\x10\x05\x12\x0e\n" +
 	"\n" +
 	"TECH_ERROR\x10\x06\x12\x11\n" +
-	"\rNETWORK_ERROR\x10\aB5B\tMyGaruSDKZ(github.com/mygaru/dcr-sdk/gen/base1;baseb\beditionsp\xe8\a"
+	"\rNETWORK_ERROR\x10\a\x12\r\n" +
+	"\tFORBIDDEN\x10\bB5B\tMyGaruSDKZ(github.com/mygaru/dcr-sdk/gen/base1;baseb\beditionsp\xe8\a"
 
 var (
 	file_base_v1_common_proto_rawDescOnce sync.Once

@@ -6,6 +6,7 @@ const (
 	Unknown RPCRegister = iota
 	Target  RPCRegister = 1
 	Report  RPCRegister = 2
+	Touch   RPCRegister = 3
 
 	// Auth was the per-connection authentication request.
 	//
@@ -15,7 +16,7 @@ const (
 	// so the number is never reused for something else.
 	Auth RPCRegister = 4
 
-	MaxRequestIdentifier = Report
+	MaxRequestIdentifier = Touch
 )
 
 func (r RPCRegister) String() string {
@@ -24,6 +25,8 @@ func (r RPCRegister) String() string {
 		return "target"
 	case Report:
 		return "report"
+	case Touch:
+		return "touch"
 	case Auth:
 		return "auth"
 	default:
