@@ -1,162 +1,93 @@
+// client-example shows how an application integrates the SDK and keeps its
+// client certificate renewed:
+//
+//  1. it loads the certificate and key from the files its configuration names;
+//  2. it creates the client with them, and with OnRenewed, which turns on the
+//     SDK's automatic renewal: a week before the certificate expires the SDK
+//     renews it at the myGaru CA, OnRenewed (dcr.SaveToFiles) saves the new
+//     certificate and key over the files, and the SDK switches its
+//     connections to it.
+//
+// Run it with the certificate and key the manager or the member zone provided:
+//
+//	go run ./cmd/client-example -cert client.pem -key client-key.pem
 package main
 
 import (
-	"bytes"
 	"context"
-	"crypto/tls"
-	"crypto/x509"
-	"fmt"
+	"flag"
 	"log"
+	"net"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
-	dcr "gitlab.mygaru.com/mygaru-public/dcr-sdk-pub"
-	base "gitlab.mygaru.com/mygaru-public/dcr-sdk-pub/gen/base1"
-	"gitlab.mygaru.com/mygaru-public/dcr-sdk-pub/pkg/client"
+	dcr "github.com/mygaru/dcr-sdk"
+	"github.com/mygaru/dcr-sdk/pkg/client"
 )
 
-//
-// @andrey - why do we ever need server CA roots?
-// We're using well-known ACME CAs for servers, so roots should be available in OS's trust store
-//
-
-type Config struct {
-	CertPath string // The path to the client certificate file
-	KeyPath  string // The path to the client key file
-	CAPath   string // @andrey, see question above
-	CAURL    string // The URL for CA to fetch certificates
-	DCRAddr  string // The comma-separated list of DCR servers
-	ServerID string // The server name for TLS SNI
-}
+var (
+	certPath    = flag.String("cert", "", "PEM client certificate, intermediates may follow (required)")
+	keyPath     = flag.String("key", "", "PEM private key of -cert (required)")
+	addr        = flag.String("addr", "cloud.mygaru.com:7937", "Comma-separated DCR cloud RPC addresses")
+	caURL       = flag.String("caURL", dcr.DefaultCAURL, "myGaru CA the certificate is renewed at")
+	renewBefore = flag.Duration("renewBefore", 7*24*time.Hour, "Renew the certificate this long before it expires")
+)
 
 func main() {
-	cfg := Config{
-		CertPath: "./certs/client.pem",
-		KeyPath:  "./certs/client-key.pem",
-		CAPath:   "./certs/server-ca.pem",
-		CAURL:    "https://ca.mygaru.com/cert",
-		DCRAddr:  "cloud.mygaru.com:7937",
-		ServerID: "cloud.mygaru.com",
+	flag.Parse()
+
+	if *certPath == "" || *keyPath == "" {
+		log.Fatal("-cert and -key are required")
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Step 1: App loads initial certificate / key from files
-	certPEM, keyPEM, serverRoots, err := loadCertsFromDisk(cfg)
+	// Step 1: load the certificate and key from the files.
+	certPEM, err := os.ReadFile(*certPath)
 	if err != nil {
-		log.Fatalf("failed to load initial certificates: %v", err)
+		log.Fatalf("read certificate: %v", err)
+	}
+	keyPEM, err := os.ReadFile(*keyPath)
+	if err != nil {
+		log.Fatalf("read key: %v", err)
 	}
 
-	// Step 2: App initializes SDK, using loaded certificates
-	// CertProvider manages in-memory cert state and provides GetClientCertificate
-	certProvider, err := dcr.NewCertProvider(dcr.MTLSConfig{
-		CertPEM:       certPEM,
-		KeyPEM:        keyPEM,
-		ServerRootCAs: serverRoots, // @andrey, see question above
+	// Step 2: create the client. The server certificate is a public (ACME)
+	// one, checked against the system roots; the client certificate against
+	// the myGaru CA the SDK carries.
+	serverName, _, err := net.SplitHostPort(*addr)
+	if err != nil {
+		log.Fatalf("-addr %q: %v", *addr, err)
+	}
+	cli, err := dcr.NewWithMTLS(&client.Configuration{
+		Addrs:              *addr,
+		MaxRequestDuration: time.Second,
+	}, dcr.MTLSConfig{
+		CertPEM:    certPEM,
+		KeyPEM:     keyPEM,
+		ServerName: serverName,
+
+		// automatic renewal
+		CAURL:       *caURL,
+		RenewBefore: *renewBefore,
+		// saves the renewed certificate over the files loaded above
+		OnRenewed: dcr.SaveToFiles(*certPath, *keyPath),
+		OnRenewError: func(err error) {
+			// the current certificate stays in use; the SDK tries again
+			log.Printf("certificate renewal failed: %v", err)
+		},
 	})
 	if err != nil {
-		log.Fatalf("failed to initialize CertProvider: %v", err)
+		log.Fatalf("create client: %v", err)
 	}
 
-	tlsConfig := &tls.Config{
-		GetClientCertificate: certProvider.GetClientCertificate,
-		RootCAs:              serverRoots, // @andrey, see question above
-		ServerName:           cfg.ServerID,
-		MinVersion:           tls.VersionTLS12,
-	}
+	leaf := cli.CertProvider().Leaf()
+	log.Printf("client ready: %s, certificate %s valid until %s, renewed from %s",
+		*addr, leaf.SerialNumber, leaf.NotAfter.Format(time.RFC3339), leaf.NotAfter.Add(-*renewBefore).Format(time.RFC3339))
 
-	sdkClient := dcr.NewWithTLS(&client.Configuration{
-		Addrs:                          cfg.DCRAddr,
-		MaxRequestDuration:             time.Second,
-		MaximumSimultaneousConnections: 128,
-	}, tlsConfig)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
-	// Step 3: App runs background thread for cert expiration monitoring & auto-renewal
-	go runCertAutoRenewer(ctx, certProvider, sdkClient, cfg)
-
-	// Perform normal application operations
-	// ...
-
-}
-
-// runCertAutoRenewer is the background thread monitoring certificate expiration.
-func runCertAutoRenewer(ctx context.Context, provider *dcr.CertProvider, sdkClient *client.ShardedClient, cfg Config) {
-	// Check every 12 hours
-	ticker := time.NewTicker(12 * time.Hour)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if err := checkAndRenewCert(ctx, provider, sdkClient, cfg); err != nil {
-				log.Printf("[CertRenewer] Warning: renewal check failed: %v", err)
-			}
-		}
-	}
-}
-
-func checkAndRenewCert(ctx context.Context, provider *dcr.CertProvider, sdkClient *client.ShardedClient, cfg Config) error {
-	leaf := provider.Leaf()
-	if leaf == nil {
-		return fmt.Errorf("certificate leaf is unavailable")
-	}
-
-	totalLifetime := leaf.NotAfter.Sub(leaf.NotBefore)
-	timeLeft := time.Until(leaf.NotAfter)
-
-	// Condition: time left to expiration is less than 10% of total certificate lifetime
-	threshold := time.Duration(float64(totalLifetime) * 0.10)
-	if timeLeft > threshold {
-		log.Printf("[CertRenewer] Cert is valid (%v left). Renewal threshold (%v) not reached.", timeLeft.Round(time.Hour), threshold.Round(time.Hour))
-		return nil
-	}
-
-	log.Printf("[CertRenewer] Cert expiration near (%v left < 10%% threshold %v). Fetching new cert from CA...", timeLeft, threshold)
-
-	// a) Call certProvider.Fetch to get new cert from CA via mTLS
-	newCertPEM, newKeyPEM, err := provider.Fetch(ctx, cfg.CAURL)
-	if err != nil {
-		return fmt.Errorf("Fetch failed: %w", err)
-	}
-
-	// Verify if certificate is actually new
-	if bytes.Equal(provider.CertPEM(), newCertPEM) {
-		log.Printf("[CertRenewer] CA returned identical certificate. No update needed.")
-		return nil
-	}
-
-	// b) Save received certificate / key to local files atomically
-	if err := saveFileAtomic(cfg.CertPath, newCertPEM, 0644); err != nil {
-		return fmt.Errorf("failed to save cert file: %w", err)
-	}
-	if err := saveFileAtomic(cfg.KeyPath, newKeyPEM, 0600); err != nil {
-		return fmt.Errorf("failed to save key file: %w", err)
-	}
-	log.Printf("[CertRenewer] Saved new cert/key files to disk (%s, %s)", cfg.CertPath, cfg.KeyPath)
-
-	// c) Call certProvider.Update to update certificate in SDK runtime
-	if err := provider.Update(newCertPEM, newKeyPEM); err != nil {
-		return fmt.Errorf("runtime update failed: %w", err)
-	}
-	log.Printf("[CertRenewer] Certificate successfully updated in SDK runtime")
-
-	// d) (Optionally) gracefully restart existing connections
-	if sdkClient != nil {
-		sdkClient.Reconnect(false) // false = graceful reconnect
-		log.Printf("[CertRenewer] Gracefully restarted active SDK connections")
-	}
-
-	return nil
-}
-
-func loadCertsFromDisk(cfg Config) ([]byte, []byte, *x509.CertPool, error) {
-	return nil, nil, nil, fmt.Errorf("DIY")
-}
-
-func saveFileAtomic(filename string, data []byte, perm os.FileMode) error {
-	// write temporary file and then os.Rename it to the target filename
-	return fmt.Errorf("DIY")
+	// The application's own work goes here: cli.Target, cli.Report, ...
+	<-ctx.Done()
 }

@@ -117,7 +117,11 @@ cli, err := dcr.NewWithMTLS(&client.Configuration{
 ```
 
 The client certificate is validated at construction, so a certificate the cloud
-would refuse fails `NewWithMTLS` rather than every dial.
+would refuse fails `NewWithMTLS` rather than every dial. It is checked against the
+myGaru CA the SDK carries (`client.MyGaruCAChain`, from
+`http://ca.mygaru.com/ca-chain`), so a certificate issued by myGaru needs no CA
+configuration; `MTLSConfig.ClientCertRoots` and `ClientCertIntermediates`
+override it.
 
 ## Payer identity
 
@@ -203,9 +207,65 @@ by the partner's client certificate (mTLS), and `Configuration.JwtToken`,
 ---
 
 ## Production setup
-Production connections require **mTLS**. Initially, client certificate is provided by myGaru using out of band secure channels. Certificate renewal is automated using an example in `cmd/client-example/main.go`.
+Production connections require **mTLS**. The client certificate is provided by myGaru (the manager or the member zone); the cloud's server certificate is a public one, checked against the system roots.
 
-Use `dcr.NewWithMTLS` to create the client (see [Public API](#public-api)).
+### Certificate renewal
+
+A client certificate is valid for a limited time, so the client renews it by itself: a week before it expires (`RenewBefore`, checked every `RenewCheckInterval`, 12 hours) it renews it at the myGaru CA (`CAURL`, `dcr.DefaultCAURL` by default) over mTLS with the current one, and switches its connections to the new one - no restart, no new client.
+
+The SDK does not know where the application keeps its certificate, so saving the renewed one is the application's: `MTLSConfig.OnRenewed` is called with the new certificate and key, and only once it returns nil does the client start using them. That keeps what is on disk and what is in use the same: a restart loads the renewed certificate, and a renewal that could not be saved is not used - the current certificate stays, the error goes to `OnRenewError` (the standard log when nil) and the renewal is retried within an hour.
+
+**Without `OnRenewed` nothing is renewed automatically**: a certificate renewed only in memory would be lost on the next restart, and the one left on disk would expire.
+
+#### Option 1: the certificate is in two files - `SaveToFiles`
+
+The usual case. `dcr.SaveToFiles(certPath, keyPath)` saves the renewed certificate and key over the files the application loaded them from: each file is replaced atomically (written beside it, then renamed), the key first, the key `0600`.
+
+```go
+certPEM, _ := os.ReadFile(certPath)
+keyPEM, _ := os.ReadFile(keyPath)
+
+cli, err := dcr.NewWithMTLS(cfg, dcr.MTLSConfig{
+    CertPEM:    certPEM,
+    KeyPEM:     keyPEM,
+    ServerName: "cloud.mygaru.com",
+    OnRenewed:  dcr.SaveToFiles(certPath, keyPath),
+})
+```
+
+The files must be writable by the process. `cmd/client-example` is a complete integration of this option:
+
+```sh
+go run ./cmd/client-example -cert client.pem -key client-key.pem
+```
+
+#### Option 2: the certificate is kept elsewhere - your own `OnRenewed`
+
+When the certificate does not live in plain files the application can write - a Kubernetes secret, Vault, a database, a config service - `OnRenewed` is a function of the application's own that stores the pair there:
+
+```go
+cli, err := dcr.NewWithMTLS(cfg, dcr.MTLSConfig{
+    CertPEM:    certPEM,
+    KeyPEM:     keyPEM,
+    ServerName: "cloud.mygaru.com",
+    OnRenewed: func(certPEM, keyPEM []byte) error {
+        // store both where the application loads its certificate from on start;
+        // an error keeps the current certificate and retries later
+        return secrets.Put(ctx, "dcr-client", certPEM, keyPEM)
+    },
+    OnRenewError: func(err error) {
+        logger.Warn("dcr client certificate renewal failed", "err", err)
+    },
+})
+```
+
+`OnRenewed` should return only once the pair is durably stored, and return an error otherwise. The key is a new one on every renewal (the CA generates it), so the certificate and the key are always stored together.
+
+#### Driving renewal yourself
+
+An application that wants to decide when to renew can leave `OnRenewed` unset and use the steps directly, through `cli.CertProvider()`: `Fetch(ctx, caURL)` renews at the CA and returns the result without using it, `Update(cert, key)` validates it and makes new connections present it, and `cli.Reconnect(force)` moves the open connections onto it - gracefully, once each is idle, or at once with `force`. `Leaf()` tells when the current certificate expires.
+
+Renewals are counted in `dcrRPCClientCertRenew{result="renewed|same|failed"}`.
 
 ## Configuration
 

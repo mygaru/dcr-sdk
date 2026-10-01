@@ -33,6 +33,18 @@ type Certificates struct {
 	ServerName string
 	// ServerTLSConfig is a Config.TLSConfig that accepts the client certificate.
 	ServerTLSConfig *tls.Config
+
+	clientCA *mtls.Certificate
+}
+
+// NewClientCertificate issues another client certificate from the client CA,
+// for partner id: a renewal, as far as a test can tell.
+func (c *Certificates) NewClientCertificate(id uuid.UUID) (certPEM, keyPEM []byte, err error) {
+	cert, err := mtls.Generate(mtls.GenerateConfig{CN: "dcr-sdk-client", UUID: id.String(), CA: c.clientCA})
+	if err != nil {
+		return nil, nil, fmt.Errorf("generate client certificate: %w", err)
+	}
+	return cert.CertPEM, cert.KeyPEM, nil
 }
 
 // NewCertificates generates a fresh test PKI.
@@ -77,6 +89,7 @@ func NewCertificates() (*Certificates, error) {
 			Certificates: []tls.Certificate{serverCert},
 			MinVersion:   tls.VersionTLS12,
 		}, serverauth.MTLSConfig{Roots: clientRoots}),
+		clientCA: clientCA,
 	}, nil
 }
 

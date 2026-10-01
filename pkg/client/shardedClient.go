@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -59,6 +60,39 @@ type ShardedClient struct {
 
 	// clients is a slice of pointers to client instances used for managing connections to multiple servers for sharding.
 	clients []*clientsGroup
+
+	// certProvider serves the client certificate to every new connection.
+	certProvider *CertProvider
+}
+
+// CertProvider is the client's certificate: renew it with Fetch and Update.
+func (sc *ShardedClient) CertProvider() *CertProvider {
+	return sc.certProvider
+}
+
+// Reconnect closes the client's open connections, which are dialed again on
+// demand - presenting the CertProvider's current certificate. Call it after
+// CertProvider.Update for the open connections to move onto the new
+// certificate; without it they keep the old one until they are re-dialed for
+// another reason. Optional: the cloud checks a certificate when a connection is
+// established, not on every request.
+//
+// Graceful (force false) closes each connection once no request is in flight on
+// it, waiting at most MaxRequestDuration for that; a request written in the
+// instant it closes still fails. Force closes them all at once, failing the
+// requests in flight. Reconnect returns when every connection is closed.
+func (sc *ShardedClient) Reconnect(force bool) {
+	var wg sync.WaitGroup
+	for _, group := range sc.clients {
+		for _, c := range group.clients {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				c.reconnect(force, sc.MaxRequestDuration)
+			}()
+		}
+	}
+	wg.Wait()
 }
 
 // clientsGroup holds the connections opened to one address from Addrs.
@@ -295,7 +329,7 @@ func newClient(cfg *Configuration, tlsConfig *tls.Config) *ShardedClient {
 				if err != nil {
 					return nil, err
 				}
-				rpcRef.onConnDialed()
+				rpcRef.onConnDialed(conn)
 				return conn, nil
 			}
 

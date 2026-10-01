@@ -1,8 +1,11 @@
 package client
 
 import (
+	"bytes"
 	"crypto/tls"
 	"crypto/x509"
+	_ "embed"
+	"encoding/pem"
 	"fmt"
 	"time"
 
@@ -22,12 +25,41 @@ type MTLSConfig struct {
 	// MinVersion optionally overrides the minimum TLS version. When zero, TLS 1.2 is used.
 	MinVersion uint16
 	// ClientCertRoots is the CA pool used by mtls.CheckTLS to validate CertPEM.
-	// When nil, mtls.CheckTLS uses the system root CA pool.
+	// When nil, the myGaru root CA the SDK carries is used (see MyGaruCAChain).
 	ClientCertRoots *x509.CertPool
-	// ClientCertIntermediates is an optional intermediate CA pool used by mtls.CheckTLS.
+	// ClientCertIntermediates is an optional intermediate CA pool used by
+	// mtls.CheckTLS. When nil, the myGaru intermediate CA the SDK carries is
+	// used, so a CertPEM without its chain still validates. Intermediates that
+	// follow the certificate in CertPEM are added either way.
 	ClientCertIntermediates *x509.CertPool
 	// CurrentTime optionally overrides certificate validity checks. When zero, the current time is used.
 	CurrentTime time.Time
+
+	// OnRenewed turns on automatic renewal: once RenewBefore of the
+	// certificate's validity is left, the client renews it at the CA (CAURL),
+	// calls OnRenewed with the new certificate and key, then serves them to new
+	// connections and moves the open ones onto them (Reconnect, graceful).
+	//
+	// OnRenewed is where the application saves them wherever it loads its
+	// certificate from, so a restart picks up the renewed one: SaveToFiles for
+	// a certificate in two PEM files, or a function of its own for a secret
+	// store. If it returns an error the renewal is dropped, the current
+	// certificate stays and the renewal is tried again later. Without
+	// OnRenewed nothing is renewed automatically: a certificate renewed only in
+	// memory would be lost on the next restart.
+	OnRenewed func(certPEM, keyPEM []byte) error
+	// OnRenewError is told why an automatic renewal failed; the client keeps
+	// the current certificate and tries again. When nil the error is logged
+	// with the standard log package.
+	OnRenewError func(error)
+	// RenewBefore is how long before the certificate expires it is renewed
+	// automatically: 7 days when zero. Negative turns automatic renewal off.
+	RenewBefore time.Duration
+	// RenewCheckInterval is how often the certificate is checked: 12 hours
+	// when zero. A failed renewal is retried within an hour.
+	RenewCheckInterval time.Duration
+	// CAURL is the CA a certificate is renewed at: DefaultCAURL when empty.
+	CAURL string
 }
 
 // NewWithMTLS creates a client of the DCR cloud that authenticates with a client
@@ -37,65 +69,144 @@ type MTLSConfig struct {
 //
 // The certificate is obtained from the manager or downloaded from the profile
 // section of the member zone. cfg may be nil for the defaults.
+//
+// The certificate is served to every new connection by the client's
+// CertProvider, so a renewed one (CertProvider.Fetch, CertProvider.Update)
+// takes effect without creating the client again; Reconnect moves the open
+// connections onto it.
 func NewWithMTLS(cfg *Configuration, mtlsCfg MTLSConfig) (*ShardedClient, error) {
-	tlsConfig, err := newMTLSClientConfig(mtlsCfg)
+	return newWithMTLS(cfg, mtlsCfg, nil)
+}
+
+// newWithMTLS is NewWithMTLS with a hook that sets the provider up before
+// automatic renewal starts with it; for tests.
+func newWithMTLS(cfg *Configuration, mtlsCfg MTLSConfig, setup func(*CertProvider)) (*ShardedClient, error) {
+	provider, err := newCertProvider(mtlsCfg)
 	if err != nil {
 		return nil, err
 	}
-	return newClient(cfg, tlsConfig), nil
+	if setup != nil {
+		setup(provider)
+	}
+
+	minVersion := mtlsCfg.MinVersion
+	if minVersion == 0 {
+		minVersion = tls.VersionTLS12
+	}
+
+	sc := newClient(cfg, &tls.Config{
+		// Asked on every handshake, so a new connection always presents the
+		// current certificate - and presents it whichever CAs the server
+		// names, which leaves refusing it to the server and its error.
+		GetClientCertificate: provider.GetClientCertificate,
+		// nil: the system roots, which the cloud's (ACME) certificate is
+		// issued under
+		RootCAs:    mtlsCfg.ServerRootCAs,
+		ServerName: mtlsCfg.ServerName,
+		MinVersion: minVersion,
+	})
+	sc.certProvider = provider
+
+	if renewer := newAutoRenewer(sc, mtlsCfg); renewer != nil {
+		go renewer.run()
+	}
+	return sc, nil
 }
 
-// newMTLSClientConfig builds the TLS client config of an mTLS connection and
-// validates the client certificate with mtls.CheckTLS, so a certificate the
-// cloud would refuse is reported at construction rather than on every dial.
-func newMTLSClientConfig(cfg MTLSConfig) (*tls.Config, error) {
-	cert, err := tls.X509KeyPair(cfg.CertPEM, cfg.KeyPEM)
+// certCheck is what a client certificate is validated against.
+type certCheck struct {
+	roots, intermediates *x509.CertPool
+	currentTime          time.Time
+}
+
+func newCertCheck(cfg MTLSConfig) certCheck {
+	check := certCheck{
+		roots:         cfg.ClientCertRoots,
+		intermediates: cfg.ClientCertIntermediates,
+		currentTime:   cfg.CurrentTime,
+	}
+	if check.roots == nil {
+		check.roots = myGaruCAs.roots
+	}
+	if check.intermediates == nil {
+		check.intermediates = myGaruCAs.intermediates
+	}
+	return check
+}
+
+// load parses a client certificate and its key and validates the certificate
+// with mtls.CheckTLS, so a certificate the cloud would refuse is reported when
+// it is handed to the SDK rather than on every dial.
+func (check certCheck) load(certPEM, keyPEM []byte) (tls.Certificate, error) {
+	cert, err := tls.X509KeyPair(certPEM, keyPEM)
 	if err != nil {
-		return nil, fmt.Errorf("parse mTLS client certificate: %w", err)
+		return tls.Certificate{}, fmt.Errorf("parse mTLS client certificate: %w", err)
 	}
 	if len(cert.Certificate) == 0 {
-		return nil, fmt.Errorf("mTLS client certificate is empty")
+		return tls.Certificate{}, fmt.Errorf("mTLS client certificate is empty")
 	}
 
 	leaf, err := x509.ParseCertificate(cert.Certificate[0])
 	if err != nil {
-		return nil, fmt.Errorf("parse mTLS leaf certificate: %w", err)
+		return tls.Certificate{}, fmt.Errorf("parse mTLS leaf certificate: %w", err)
 	}
 	cert.Leaf = leaf
 
-	intermediates := cfg.ClientCertIntermediates
+	intermediates := check.intermediates
 	if len(cert.Certificate) > 1 {
-		if intermediates == nil {
-			intermediates = x509.NewCertPool()
-		} else {
-			intermediates = intermediates.Clone()
-		}
+		// never added to a pool the caller or the defaults own
+		intermediates = intermediates.Clone()
 		for _, certDER := range cert.Certificate[1:] {
 			intermediate, err := x509.ParseCertificate(certDER)
 			if err != nil {
-				return nil, fmt.Errorf("parse mTLS intermediate certificate: %w", err)
+				return tls.Certificate{}, fmt.Errorf("parse mTLS intermediate certificate: %w", err)
 			}
 			intermediates.AddCert(intermediate)
 		}
 	}
 
 	if err := mtls.CheckTLS(leaf, mtls.CheckTLSConfig{
-		Roots:         cfg.ClientCertRoots,
+		Roots:         check.roots,
 		Intermediates: intermediates,
-		CurrentTime:   cfg.CurrentTime,
+		CurrentTime:   check.currentTime,
 	}); err != nil {
-		return nil, fmt.Errorf("validate mTLS client certificate: %w", err)
+		return tls.Certificate{}, fmt.Errorf("validate mTLS client certificate: %w", err)
 	}
 
-	minVersion := cfg.MinVersion
-	if minVersion == 0 {
-		minVersion = tls.VersionTLS12
-	}
-
-	return &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		RootCAs:      cfg.ServerRootCAs,
-		ServerName:   cfg.ServerName,
-		MinVersion:   minVersion,
-	}, nil
+	return cert, nil
 }
+
+// MyGaruCAChain is the PEM chain of the CA that issues DCR cloud client
+// certificates (http://ca.mygaru.com/ca-chain): the intermediate "myGaru
+// Signinig A2" and the root "myGaru Root R2". A client certificate is checked
+// against it unless MTLSConfig names CA pools of its own. It is public: a CA
+// certificate carries the CA's public key, never the key that signs.
+//
+//go:embed mygaru-ca-chain.pem
+var MyGaruCAChain []byte
+
+// myGaruCAs is MyGaruCAChain split into its root and its intermediates.
+var myGaruCAs = func() (cas struct{ roots, intermediates *x509.CertPool }) {
+	cas.roots = x509.NewCertPool()
+	cas.intermediates = x509.NewCertPool()
+
+	rest := MyGaruCAChain
+	for {
+		var block *pem.Block
+		block, rest = pem.Decode(rest)
+		if block == nil {
+			break
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			panic(fmt.Sprintf("dcr-sdk: embedded myGaru CA chain: %v", err))
+		}
+
+		if bytes.Equal(cert.RawSubject, cert.RawIssuer) && cert.CheckSignatureFrom(cert) == nil {
+			cas.roots.AddCert(cert)
+		} else {
+			cas.intermediates.AddCert(cert)
+		}
+	}
+	return cas
+}()

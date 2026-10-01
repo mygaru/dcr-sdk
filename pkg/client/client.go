@@ -3,6 +3,7 @@ package client
 import (
 	"errors"
 	"fmt"
+	"net"
 	"sync/atomic"
 	"time"
 
@@ -25,12 +26,41 @@ type client struct {
 	// connDials counts successfully established connections, i.e. the number of
 	// (re)connects this client has performed.
 	connDials atomic.Uint64
+
+	// conn is the connection fastrpc is serving on, for reconnect to close.
+	conn atomic.Pointer[dialedConn]
+}
+
+// dialedConn is a connection the client dialed.
+type dialedConn struct {
+	net.Conn
 }
 
 // onConnDialed is called from the fastrpc Dial hook once a connection is
 // established.
-func (c *client) onConnDialed() {
+func (c *client) onConnDialed(conn net.Conn) {
 	c.connDials.Add(1)
+	c.conn.Store(&dialedConn{Conn: conn})
+}
+
+// reconnect closes the client's connection, so fastrpc dials a new one -
+// handshaking with the current certificate. Unless force, it first waits, at
+// most wait, for the requests in flight on it to finish.
+func (c *client) reconnect(force bool, wait time.Duration) {
+	conn := c.conn.Load()
+	if conn == nil {
+		return
+	}
+
+	if !force {
+		deadline := time.Now().Add(wait)
+		for c.c.PendingRequests() > 0 && time.Now().Before(deadline) {
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+
+	_ = conn.Close()
+	c.conn.CompareAndSwap(conn, nil)
 }
 
 // Reconnects returns the number of connections the client has established.

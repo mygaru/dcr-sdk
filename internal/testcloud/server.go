@@ -49,6 +49,10 @@ type Server struct {
 	reports chan *base.ReportRequest
 	counter atomic.Uint64
 
+	// lastCaller is the partner of the client certificate the last request
+	// came with.
+	lastCaller atomic.Pointer[uuid.UUID]
+
 	// unauthorized counts Target/Report requests refused for a missing payer
 	// or a connection without a client certificate.
 	unauthorized atomic.Uint64
@@ -58,6 +62,15 @@ type Server struct {
 // missing payer or a connection without a client certificate.
 func (s *Server) Unauthorized() uint64 {
 	return s.unauthorized.Load()
+}
+
+// LastCaller is the partner of the client certificate the last request was
+// made with; uuid.Nil before the first.
+func (s *Server) LastCaller() uuid.UUID {
+	if id := s.lastCaller.Load(); id != nil {
+		return *id
+	}
+	return uuid.Nil
 }
 
 // errNoTLSConfig is returned by Start and ListenAndServe without Config.TLSConfig.
@@ -216,6 +229,7 @@ func (s *Server) handle(ctxv fastrpc.HandlerCtx) fastrpc.HandlerCtx {
 		writeError(ctx, base.RPCServerResponseCode_UNAUTHORIZED, fmt.Errorf("mTLS client certificate is required"))
 		return ctxv
 	}
+	s.lastCaller.Store(&partnerID)
 
 	switch ctx.Request.GetName() {
 	case contract.Target:
