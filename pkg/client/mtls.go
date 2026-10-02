@@ -7,6 +7,8 @@ import (
 	_ "embed"
 	"encoding/pem"
 	"fmt"
+	"net"
+	"strings"
 	"time"
 
 	"gitlab.adtelligent.com/awesome/mtls"
@@ -94,6 +96,11 @@ func newWithMTLS(cfg *Configuration, mtlsCfg MTLSConfig, setup func(*CertProvide
 		minVersion = tls.VersionTLS12
 	}
 
+	serverName, err := resolveServerName(mtlsCfg.ServerName, cfg)
+	if err != nil {
+		return nil, err
+	}
+
 	sc := newClient(cfg, &tls.Config{
 		// Asked on every handshake, so a new connection always presents the
 		// current certificate - and presents it whichever CAs the server
@@ -102,7 +109,7 @@ func newWithMTLS(cfg *Configuration, mtlsCfg MTLSConfig, setup func(*CertProvide
 		// nil: the system roots, which the cloud's (ACME) certificate is
 		// issued under
 		RootCAs:    mtlsCfg.ServerRootCAs,
-		ServerName: mtlsCfg.ServerName,
+		ServerName: serverName,
 		MinVersion: minVersion,
 	})
 	sc.certProvider = provider
@@ -210,3 +217,57 @@ var myGaruCAs = func() (cas struct{ roots, intermediates *x509.CertPool }) {
 	}
 	return cas
 }()
+
+// resolveServerName settles what the server certificate is verified against.
+//
+// crypto/tls refuses a handshake when neither ServerName nor InsecureSkipVerify
+// is set, and nothing fills it in for us: Go infers the name from the address in
+// tls.Dial, but the connection here is dialled as plain TCP and wrapped
+// afterwards, so an unset ServerName fails every handshake. Worse, it fails
+// invisibly - fastrpc reconnects in the background and the caller sees only its
+// request time out, with no mention of TLS - so a caller who simply did not know
+// about the field gets a client that times out 100% of the time and no clue why.
+//
+// So infer it from the address, which is what the caller would have typed anyway,
+// and refuse to build a client when that cannot be done rather than handing back
+// one that cannot connect. Shards on different hosts have no single name to
+// verify against, which is the one case the caller has to settle.
+func resolveServerName(configured string, cfg *Configuration) (string, error) {
+	if configured != "" {
+		return configured, nil
+	}
+
+	addrs := normalizeConfiguration(cfg).Addrs
+
+	var name string
+
+	for _, addr := range strings.Split(addrs, ",") {
+		addr = strings.TrimSpace(addr)
+		if addr == "" {
+			continue
+		}
+
+		host, _, err := net.SplitHostPort(addr)
+		if err != nil {
+			host = addr
+		}
+
+		switch {
+		case host == "":
+			continue
+		case name == "":
+			name = host
+		case host != name:
+			return "", fmt.Errorf("MTLSConfig.ServerName is empty and cannot be inferred: "+
+				"Addrs names more than one host (%q and %q), so set it to the name the "+
+				"server certificate is issued for", name, host)
+		}
+	}
+
+	if name == "" {
+		return "", fmt.Errorf("MTLSConfig.ServerName is empty and cannot be inferred from Addrs %q: "+
+			"set it to the name the server certificate is issued for", addrs)
+	}
+
+	return name, nil
+}
