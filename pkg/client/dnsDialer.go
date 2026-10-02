@@ -152,7 +152,22 @@ func (d *dnsDialer) resolve() []string {
 	seen := make(map[string]struct{}, len(ips))
 	addrs := make([]string, 0, len(ips))
 	for _, ip := range ips {
-		if ip.IP == nil {
+		// IPv4 only, because dial hands these to fasthttp.DialTimeout, which
+		// resolves over tcp4 and drops anything that is not IPv4. Handing it a v6
+		// literal does not fail at connect time: the address is filtered away, the
+		// list comes back empty, and it reports "couldn't find DNS entries for the
+		// given domain" - about a domain that resolves perfectly well.
+		//
+		// cloud.mygaru.com publishes three A and three AAAA records, so half the
+		// rotation used to be addresses that could never be dialled, and every
+		// reconnect was a coin flip.
+		//
+		// Dialling both stacks is the other way to fix this and is deliberately not
+		// what happens here: it would send traffic down a path nobody has confirmed
+		// the cloud listens on, turning an instant error into a dial timeout on a
+		// latency-bound request. That is a decision for whoever runs the network,
+		// not a side effect of a dialer fix.
+		if ip.IP == nil || ip.IP.To4() == nil {
 			continue
 		}
 		addr := net.JoinHostPort(ip.IP.String(), d.port)
