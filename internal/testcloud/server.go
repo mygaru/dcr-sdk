@@ -29,6 +29,9 @@ type Config struct {
 	// TouchPartners are the partners (client certificate UUIDs) granted Touch;
 	// everyone else gets FORBIDDEN, as from the cloud.
 	TouchPartners []uuid.UUID
+	// LinkPartners are the telecoms (client certificate UUIDs) granted Link;
+	// everyone else gets FORBIDDEN, as from the cloud.
+	LinkPartners []uuid.UUID
 	// TargetStatus lets tests force Target failures. UNKNOWN means OK.
 	TargetStatus base.RPCServerResponseCode
 	// ReportBuffer controls how many Report requests are retained for tests. Defaults to 8.
@@ -238,6 +241,8 @@ func (s *Server) handle(ctxv fastrpc.HandlerCtx) fastrpc.HandlerCtx {
 		s.handleReport(ctx)
 	case contract.Touch:
 		s.handleTouch(ctx, partnerID)
+	case contract.Link:
+		s.handleLink(ctx, partnerID)
 	default:
 		writeError(ctx, base.RPCServerResponseCode_INVALID_REQUEST, fmt.Errorf("unsupported request name: %s", ctx.Request.GetName()))
 	}
@@ -331,6 +336,25 @@ func (s *Server) handleTouch(ctx *contract.RequestCtx, partnerID uuid.UUID) {
 		Accuracy: base.TouchResponse_Reliable,
 		Label:    []byte("test-telecom"),
 	})
+}
+
+func (s *Server) handleLink(ctx *contract.RequestCtx, partnerID uuid.UUID) {
+	if !slices.Contains(s.cfg.LinkPartners, partnerID) {
+		writeError(ctx, base.RPCServerResponseCode_FORBIDDEN, fmt.Errorf("link is not granted to %s", partnerID))
+		return
+	}
+
+	req := &base.LinkRequest{}
+	if err := proto.Unmarshal(ctx.Request.Value(), req); err != nil {
+		writeError(ctx, base.RPCServerResponseCode_INVALID_REQUEST, fmt.Errorf("cannot unmarshal link request: %w", err))
+		return
+	}
+	if len(req.GetOtp()) == 0 {
+		writeError(ctx, base.RPCServerResponseCode_INVALID_REQUEST, fmt.Errorf("link request has no otp"))
+		return
+	}
+
+	ctx.Response.SetStatusCode(base.RPCServerResponseCode_OK)
 }
 
 func (s *Server) nextTrackingID() []byte {

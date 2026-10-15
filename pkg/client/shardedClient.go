@@ -33,12 +33,16 @@ type Configuration struct {
 	// If zero, a default refresh interval is used. If negative, periodic refresh is disabled.
 	DNSRefreshInterval time.Duration
 
-	// MaxPendingRequests is the maximum number of pending requests
-	// the client may issue until the server responds to them.
+	// MaxPendingRequests is the maximum number of requests one connection
+	// may have in flight - sent and not yet answered. One more is refused
+	// at once with fastrpc.ErrPendingRequestsOverflow rather than queued, and
+	// the limit itself is exclusive: a connection holds MaxPendingRequests-1.
+	// Default 64.
 	MaxPendingRequests int
 
-	// MaximumSimultaneousConnections specifies the maximum number of connections that can be active simultaneously for the server.
-	// By default MaximumSimultaneousConnections is tuned for low-latency high-throughput traffic.
+	// MaximumSimultaneousConnections is the number of connections opened to
+	// each address in Addrs. Requests are spread over them round-robin.
+	// Default 48.
 	MaximumSimultaneousConnections int
 
 	// ReadBufferSize is the size for read buffer.
@@ -180,6 +184,19 @@ func (sc *ShardedClient) Touch(req *base.TouchRequest) (*base.TouchResponse, bas
 	return res.(*base.TouchResponse), statusCode, nil
 }
 
+// Link tells the cloud that the identifiers of req belong to the subscriber
+// its OTP names, so the cloud recognises that subscriber later by any of them
+// alone.
+//
+// For telecoms only: the cloud grants it to a client certificate of a telecom
+// and rejects an OTP another telecom issued. The OTP is required. The cloud
+// writes the links in the background, so OK means accepted, not written yet;
+// there is no response body.
+func (sc *ShardedClient) Link(req *base.LinkRequest) (base.RPCServerResponseCode, error) {
+	_, statusCode, err := sc.getGroup().getClient().doUnary(req, nil, contract.Link)
+	return statusCode, err
+}
+
 // applyPayers resolves the request-level payer and hands it to stamp, which
 // writes it onto the request and onto every rule that names no payer of its own.
 //
@@ -274,10 +291,14 @@ func (sc *ShardedClient) Reconnects() int {
 	return n
 }
 
+// The connection defaults: 48 connections of 64 requests each, about 3000
+// requests in flight per shard address - 10 ms of 300k requests a second. 48 is
+// a multiple of 3, so the connections split evenly over three cloud nodes behind
+// one balancer. See README.md, Throughput Sizing.
 const (
 	defaultMaxRequestDuration             = time.Second
-	defaultMaximumSimultaneousConnections = 128
-	defaultMaxPendingRequests             = 8
+	defaultMaximumSimultaneousConnections = 48
+	defaultMaxPendingRequests             = 64
 	defaultBufferSize                     = 4 * 1024
 )
 
@@ -390,6 +411,10 @@ func buildShardMetrics(shardAddr string) [contract.MaxRequestIdentifier + 1]*met
 	var metrics [contract.MaxRequestIdentifier + 1]*metricsGroup
 	for i := 1; i <= int(contract.MaxRequestIdentifier); i++ {
 		req := contract.RPCRegister(i)
+		if req == contract.Auth {
+			// reserved, never sent
+			continue
+		}
 		metrics[i] = newMetricsGroup(req.String(), shardAddr)
 	}
 	return metrics

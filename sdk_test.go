@@ -563,3 +563,29 @@ func TestTouchIsForbiddenUnlessGranted(t *testing.T) {
 		t.Fatalf("Touch = %v, %s, %v; want FORBIDDEN", resp, sc, err)
 	}
 }
+
+func TestLinkIsAcceptedWhenGranted(t *testing.T) {
+	server := startTestCloud(t, testcloud.Config{LinkPartners: []uuid.UUID{testCerts.ClientID}})
+	rpc := newTestClient(server.Addr(), 1)
+
+	sc, err := rpc.Link(&base.LinkRequest{
+		Otp:  []byte("otp"),
+		Uids: []*base.UID{{Id: []byte(uuid.NewString()), Type: base.UID_DEVICE_ID}},
+	})
+	if err != nil || sc != base.RPCServerResponseCode_OK {
+		t.Fatalf("Link = %s, %v; want OK", sc, err)
+	}
+}
+
+func TestLinkIsForbiddenUnlessGranted(t *testing.T) {
+	server := startTestCloud(t, testcloud.Config{LinkPartners: []uuid.UUID{uuid.New()}})
+	rpc := newTestClient(server.Addr(), 1)
+
+	sc, err := rpc.Link(&base.LinkRequest{
+		Otp:  []byte("otp"),
+		Uids: []*base.UID{{Id: []byte(uuid.NewString()), Type: base.UID_DEVICE_ID}},
+	})
+	if err == nil || sc != base.RPCServerResponseCode_FORBIDDEN {
+		t.Fatalf("Link = %s, %v; want FORBIDDEN", sc, err)
+	}
+}

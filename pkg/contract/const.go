@@ -16,7 +16,11 @@ const (
 	// so the number is never reused for something else.
 	Auth RPCRegister = 4
 
-	MaxRequestIdentifier = Touch
+	// Link links the identifiers of a request to a subscriber of the calling
+	// telecom.
+	Link RPCRegister = 5
+
+	MaxRequestIdentifier = Link
 )
 
 func (r RPCRegister) String() string {
@@ -29,6 +33,8 @@ func (r RPCRegister) String() string {
 		return "touch"
 	case Auth:
 		return "auth"
+	case Link:
+		return "link"
 	default:
 		panic("unknown")
 	}

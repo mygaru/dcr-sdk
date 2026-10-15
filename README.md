@@ -290,12 +290,12 @@ type Configuration struct {
     // If negative, periodic refresh is disabled.
     DNSRefreshInterval time.Duration
 
-    // Maximum number of in-flight requests per underlying transport client.
-    // By default: 8.
+    // Maximum number of in-flight requests per underlying transport connection.
+    // By default: 64.
     MaxPendingRequests int
 
     // Number of underlying transport connections per configured shard address.
-    // By default: 128.
+    // By default: 48.
     MaximumSimultaneousConnections int
 
     // Transport buffer sizes in bytes.
@@ -306,63 +306,35 @@ type Configuration struct {
 
 ## Throughput Sizing
 
-`MaximumSimultaneousConnections` defines how many underlying transport connections are opened for each configured shard address.
-The default value is `128`.
-
-Use this conservative formula to estimate client-side throughput:
+The cloud processes the requests of one connection concurrently, so a connection carries many requests at once. What bounds a client is how many requests it can have **in flight** - sent and not yet answered:
 
 ```text
-requests_per_second = shard_count * MaximumSimultaneousConnections * (1000 / average_rpc_latency_ms)
+in_flight_capacity = shard_count * MaximumSimultaneousConnections * (MaxPendingRequests - 1)
 ```
 
-With the default `MaximumSimultaneousConnections = 128`, one shard address, and an average RPC latency of `1 ms`:
+A request beyond that capacity is not queued: it fails at once with `fastrpc.ErrPendingRequestsOverflow`. The capacity therefore has to cover the requests in flight at the client's peak (Little's law), with room for latency spikes:
 
 ```text
-requests_per_second = 1 * 128 * (1000 / 1)
-requests_per_second = 128,000 RPC/s
+in_flight_needed = requests_per_second * p99_latency_seconds
+in_flight_capacity >= 3 * in_flight_needed
 ```
 
-For multiple shard addresses, multiply by the number of addresses in `Configuration.Addrs`:
+The defaults - `MaximumSimultaneousConnections = 48`, `MaxPendingRequests = 64` - give about 3,000 requests in flight per shard address: 10 ms of 300,000 RPC/s.
+
+When raising capacity, prefer `MaxPendingRequests` over more connections, and size the connection count on its own terms:
+
+- **Per-connection throughput.** A connection is read and written by one goroutine on each side (TLS, compression and framing included). Keep it to a few thousand up to ~20,000 RPC/s: `MaximumSimultaneousConnections >= requests_per_second / 20,000`, doubled for headroom.
+- **Spread over cloud nodes.** A TCP load balancer in front of several cloud nodes balances connections, not requests. Keep at least 4-8 connections per node behind it, and a multiple of the node count, so each node gets an even share.
+
+Example: one client, 300,000 RPC/s, p99 3 ms, three cloud nodes behind one balancer address:
 
 ```text
-requests_per_second = shard_count * 128,000
+in_flight_needed               = 300,000 * 0.003 = 900
+MaximumSimultaneousConnections = 48              (16 per node, ~6,250 RPC/s each)
+MaxPendingRequests             = 64              (capacity 48 * 63 = 3,024 >= 3 * 900)
 ```
 
-For example, with `3` shard addresses and `1 ms` average latency:
-
-```text
-requests_per_second = 3 * 128 * (1000 / 1)
-requests_per_second = 384,000 RPC/s
-```
-
-To choose `MaximumSimultaneousConnections` for a target load:
-
-```text
-MaximumSimultaneousConnections = ceil(target_requests_per_second * average_rpc_latency_ms / (1000 * shard_count))
-```
-
-Example: to handle `50,000 RPC/s` with `2 ms` average latency and one shard address:
-
-```text
-MaximumSimultaneousConnections = ceil(50,000 * 2 / (1000 * 1))
-MaximumSimultaneousConnections = 100
-```
-
-`MaxPendingRequests` is the per-connection limit for in-flight requests. The default is `8`.
-If the application sends enough concurrent requests and the server supports pipelining efficiently, the theoretical transport ceiling is:
-
-```text
-requests_per_second = shard_count * MaximumSimultaneousConnections * MaxPendingRequests * (1000 / average_rpc_latency_ms)
-```
-
-With default values and `1 ms` average latency:
-
-```text
-requests_per_second = 1 * 128 * 8 * (1000 / 1)
-requests_per_second = 1,024,000 RPC/s
-```
-
-Treat this as an upper bound. Real throughput also depends on server capacity, network latency distribution, payload size, CPU, TLS overhead, and how much concurrency the application actually produces.
+Real throughput also depends on server capacity, network latency, payload size, CPU and how much concurrency the application actually produces.
 
 ## Main RPC Methods
 

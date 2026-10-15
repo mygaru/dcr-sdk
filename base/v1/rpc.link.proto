@@ -1,0 +1,29 @@
+edition = "2023";
+
+import "base/v1/user.proto";
+
+option java_outer_classname = "myGaruSDK";
+// NOTE: go_package intentionally names the PUBLIC module path
+// (github.com/mygaru/dcr-sdk), not this repository's own module path; see the
+// same note in rpc.target.proto and PROTO_GO_MODULE in the Makefile.
+option go_package = "github.com/mygaru/dcr-sdk/gen/base1;base";
+
+option features.field_presence = IMPLICIT;
+
+package link;
+
+// Link tells the cloud that the identifiers of a request belong to one
+// subscriber of the calling telecom, so the cloud can recognise that subscriber
+// later by any of them alone. Only a telecom may call it, and the cloud
+// answers with a status code and no body.
+message LinkRequest {
+  // otp is the subscriber's OTP, issued by the calling telecom. It is
+  // REQUIRED: the cloud links identifiers only to a subscriber named in the
+  // request, never to one it looked up from the identifiers, and it rejects an
+  // OTP that another telecom issued.
+  bytes otp = 1;
+
+  // uids are the identifiers to link to the subscriber: device ids and external
+  // uids. An OTP or a partner uid among them is ignored.
+  repeated user.UID uids = 2;
+}
