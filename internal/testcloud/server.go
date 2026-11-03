@@ -41,6 +41,14 @@ type Config struct {
 	// (HAProxy idle timeout, DNS rebalance, node restart) and exercises the
 	// SDK's reconnects.
 	DropConnAfterRequest bool
+	// TargetDelay holds every Target this long before it is answered, so tests
+	// can fill the client's in-flight slots with Targets.
+	TargetDelay time.Duration
+	// ReportDelay holds every Report this long before it is answered.
+	ReportDelay time.Duration
+	// ReportFailures answers the first that many Reports SERVICE_UNAVAILABLE,
+	// as a cloud that is restarting would.
+	ReportFailures uint64
 }
 
 // Server is an in-process test-cloud RPC server.
@@ -59,6 +67,15 @@ type Server struct {
 	// unauthorized counts Target/Report requests refused for a missing payer
 	// or a connection without a client certificate.
 	unauthorized atomic.Uint64
+
+	// reportAttempts counts Report requests received, failed ones included.
+	reportAttempts atomic.Uint64
+}
+
+// ReportAttempts returns the number of Report requests received, the ones
+// failed by Config.ReportFailures included.
+func (s *Server) ReportAttempts() uint64 {
+	return s.reportAttempts.Load()
 }
 
 // Unauthorized returns the number of Target/Report requests refused for a
@@ -251,6 +268,7 @@ func (s *Server) handle(ctxv fastrpc.HandlerCtx) fastrpc.HandlerCtx {
 
 func (s *Server) handleTarget(ctx *contract.RequestCtx) {
 	defer s.dropConn(ctx.Conn())
+	time.Sleep(s.cfg.TargetDelay)
 
 	req := &base.TargetRequest{}
 	if err := proto.Unmarshal(ctx.Request.Value(), req); err != nil {
@@ -289,6 +307,12 @@ func (s *Server) handleTarget(ctx *contract.RequestCtx) {
 
 func (s *Server) handleReport(ctx *contract.RequestCtx) {
 	defer s.dropConn(ctx.Conn())
+	time.Sleep(s.cfg.ReportDelay)
+
+	if s.reportAttempts.Add(1) <= s.cfg.ReportFailures {
+		writeError(ctx, base.RPCServerResponseCode_SERVICE_UNAVAILABLE, fmt.Errorf("report failed"))
+		return
+	}
 
 	req := &base.ReportRequest{}
 	if err := proto.Unmarshal(ctx.Request.Value(), req); err != nil {

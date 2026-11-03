@@ -298,6 +298,17 @@ type Configuration struct {
     // By default: 48.
     MaximumSimultaneousConnections int
 
+    // Connections per shard address that carry Report alone, and their
+    // in-flight limit. By default: 6 and 256.
+    ReportConnections        int
+    ReportMaxPendingRequests int
+
+    // How many times a Report that failed in transit is sent again, and the
+    // pause before the first retry (doubled per retry, jittered).
+    // By default: 3 and 50ms. A negative ReportRetries disables retries.
+    ReportRetries      int
+    ReportRetryBackoff time.Duration
+
     // Transport buffer sizes in bytes.
     ReadBufferSize  int
     WriteBufferSize int
@@ -333,6 +344,17 @@ in_flight_needed               = 300,000 * 0.003 = 900
 MaximumSimultaneousConnections = 48              (16 per node, ~6,250 RPC/s each)
 MaxPendingRequests             = 64              (capacity 48 * 63 = 3,024 >= 3 * 900)
 ```
+
+### Report delivery
+
+Report does not share connections with Target, Touch and Link: every shard address gets `ReportConnections` connections of its own, so a burst of Targets that fills its pool cannot fail a report with `ErrPendingRequestsOverflow`.
+
+Report also does not fail fast:
+
+- It takes a Report connection with a free in-flight slot. When every one is full, it waits for a slot, up to `MaxRequestDuration`.
+- It sends a report that failed in transit again, up to `ReportRetries` times. Failed in transit means `NETWORK_ERROR` (no free slot, a timeout, a broken connection) or `SERVICE_UNAVAILABLE`. A retry is safe: the cloud answers a repeated report of an event with `OK` and bills it once. Other status codes are the cloud's verdict on the report itself and are returned at once.
+
+A report can therefore block its caller for several `MaxRequestDuration`s at worst. Retries are counted in `dcrRPCClientRetry{request="report"}`.
 
 Real throughput also depends on server capacity, network latency, payload size, CPU and how much concurrency the application actually produces.
 

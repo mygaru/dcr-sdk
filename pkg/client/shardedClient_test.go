@@ -82,6 +82,18 @@ func TestNewClientDoesNotMutateConfiguration(t *testing.T) {
 	if client.Configuration.MaxPendingRequests != defaultMaxPendingRequests {
 		t.Fatalf("expected default max pending requests, got %d", client.Configuration.MaxPendingRequests)
 	}
+	if client.Configuration.ReportConnections != defaultReportConnections {
+		t.Fatalf("expected default report connections, got %d", client.Configuration.ReportConnections)
+	}
+	if client.Configuration.ReportMaxPendingRequests != defaultReportMaxPendingRequests {
+		t.Fatalf("expected default report max pending requests, got %d", client.Configuration.ReportMaxPendingRequests)
+	}
+	if client.Configuration.ReportRetries != defaultReportRetries {
+		t.Fatalf("expected default report retries, got %d", client.Configuration.ReportRetries)
+	}
+	if client.Configuration.ReportRetryBackoff != defaultReportRetryBackoff {
+		t.Fatalf("expected default report retry backoff, got %s", client.Configuration.ReportRetryBackoff)
+	}
 	if client.Configuration.ReadBufferSize != defaultBufferSize {
 		t.Fatalf("expected default read buffer size, got %d", client.Configuration.ReadBufferSize)
 	}

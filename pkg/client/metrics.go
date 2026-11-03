@@ -18,6 +18,10 @@ type metricsGroup struct {
 	// after re-authenticating the connection. A non-zero rate here tracks
 	// connection churn, not a credentials problem.
 	authRetry *metrics.Counter
+
+	// retry counts requests sent again after they failed in transit. Only
+	// Report is retried.
+	retry *metrics.Counter
 }
 
 func newMetricsGroup(request, addr string) *metricsGroup {
@@ -30,5 +34,6 @@ func newMetricsGroup(request, addr string) *metricsGroup {
 		request:   metrics.GetOrCreateCounter(fmt.Sprintf(`dcrRPCClientRequest{request=%q,addr=%q}`, request, addr)),
 		duration:  metrics.GetOrCreateHistogram(fmt.Sprintf(`dcrRPCClientDuration{request=%q,addr=%q}`, request, addr)),
 		authRetry: metrics.GetOrCreateCounter(fmt.Sprintf(`dcrRPCClientAuthRetry{request=%q,addr=%q}`, request, addr)),
+		retry:     metrics.GetOrCreateCounter(fmt.Sprintf(`dcrRPCClientRetry{request=%q,addr=%q}`, request, addr)),
 	}
 }

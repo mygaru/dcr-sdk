@@ -109,7 +109,7 @@ func (c *client) doUnary(req, resp proto.Message, reqn contract.RPCRegister) (pr
 	metricGroup.duration.UpdateDuration(st)
 	if err != nil {
 		c.countError(reqn, err, rpcResp)
-		return nil, base.RPCServerResponseCode_NETWORK_ERROR, fmt.Errorf("error when calling '%s': %s", reqn, err)
+		return nil, base.RPCServerResponseCode_NETWORK_ERROR, fmt.Errorf("error when calling '%s': %w", reqn, err)
 	}
 
 	statusCode := rpcResp.GetStatusCode()

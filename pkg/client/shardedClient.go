@@ -2,7 +2,9 @@ package client
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
+	"math/rand/v2"
 	"net"
 	"strings"
 	"sync"
@@ -44,6 +46,25 @@ type Configuration struct {
 	// each address in Addrs. Requests are spread over them round-robin.
 	// Default 48.
 	MaximumSimultaneousConnections int
+
+	// ReportConnections is the number of connections opened to each address in
+	// Addrs for Report alone. Target, Touch and Link never use them, so a burst
+	// of those cannot take the in-flight slots a Report needs. Default 6.
+	ReportConnections int
+
+	// ReportMaxPendingRequests is MaxPendingRequests of the Report connections.
+	// Default 256.
+	ReportMaxPendingRequests int
+
+	// ReportRetries is how many times a Report that failed in transit - a
+	// network error, a timeout, no free in-flight slot, or SERVICE_UNAVAILABLE -
+	// is sent again. A retry of a report the cloud did process is answered OK as
+	// a duplicate and billed nothing. Default 3; negative disables retries.
+	ReportRetries int
+
+	// ReportRetryBackoff is the pause before the first Report retry; it doubles
+	// with every further retry and is jittered. Default 50ms.
+	ReportRetryBackoff time.Duration
 
 	// ReadBufferSize is the size for read buffer.
 	//
@@ -88,13 +109,13 @@ func (sc *ShardedClient) CertProvider() *CertProvider {
 func (sc *ShardedClient) Reconnect(force bool) {
 	var wg sync.WaitGroup
 	for _, group := range sc.clients {
-		for _, c := range group.clients {
+		group.forEach(func(c *client) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
 				c.reconnect(force, sc.MaxRequestDuration)
 			}()
-		}
+		})
 	}
 	wg.Wait()
 }
@@ -104,10 +125,27 @@ func (sc *ShardedClient) Reconnect(force bool) {
 // It carries no node identity. Behind a load balancer a single address serves
 // several cloud nodes, so one id per group could never represent them; the cloud
 // routes a report to the node that holds its request context by itself.
+//
+// The connections are split in two pools: clients carry Target, Touch and Link,
+// reports carry Report alone, so the two never compete for in-flight slots.
 type clientsGroup struct {
 	// roundRobin is a counter used for load balancing to distribute requests evenly across client connections.
 	roundRobin uint64
 	clients    []*client
+
+	// reportRoundRobin spreads reports over the reports pool.
+	reportRoundRobin uint64
+	reports          []*client
+}
+
+// forEach calls fn for every connection of the group, of both pools.
+func (sh *clientsGroup) forEach(fn func(*client)) {
+	for _, c := range sh.clients {
+		fn(c)
+	}
+	for _, c := range sh.reports {
+		fn(c)
+	}
 }
 
 // getClient returns a pointer to the next client in the clientsGroup's clients list using a round-robin load-balancing strategy.
@@ -165,8 +203,78 @@ func (sc *ShardedClient) Report(req *base.ReportRequest) (base.RPCServerResponse
 	// id, and the cloud forwards a report that lands elsewhere to the node that
 	// holds the matching request context - so the client does not need to know
 	// which node that is, and must not refuse the report for not knowing.
-	_, statusCode, err := sc.getGroup().getClient().doUnary(req, nil, contract.Report)
-	return statusCode, err
+	//
+	// A report is money, so unlike Target it does not fail fast: it goes over
+	// connections of its own, waits for a free in-flight slot, and is retried
+	// when it failed in transit. A retry is safe - the cloud answers a report of
+	// an event it already processed with OK and bills it once.
+	backoff := sc.ReportRetryBackoff
+	for attempt := 0; ; attempt++ {
+		cl, statusCode, err := sc.reportOnce(req)
+		if err == nil || attempt >= sc.ReportRetries || !retryableReport(statusCode) {
+			return statusCode, err
+		}
+		cl.metricGroups[contract.Report].retry.Inc()
+		time.Sleep(backoff/2 + rand.N(backoff/2+1))
+		backoff *= 2
+	}
+}
+
+// reportSlotWait is how long Report sleeps before it looks for a free in-flight
+// slot again.
+const reportSlotWait = time.Millisecond
+
+// reportOnce sends req once over the Report pool. It picks a connection with a
+// free in-flight slot, and while every one is full waits, at most
+// MaxRequestDuration, for one to free up instead of failing with
+// fastrpc.ErrPendingRequestsOverflow at once.
+func (sc *ShardedClient) reportOnce(req *base.ReportRequest) (*client, base.RPCServerResponseCode, error) {
+	deadline := time.Now().Add(sc.MaxRequestDuration)
+	for {
+		cl, free := sc.reportClient()
+		waiting := time.Now().Before(deadline)
+		if free || !waiting {
+			_, statusCode, err := cl.doUnary(req, nil, contract.Report)
+			// A slot taken between the look and the send is lost to a race, not
+			// to load: look again while there is time.
+			if !waiting || !errors.Is(err, fastrpc.ErrPendingRequestsOverflow) {
+				return cl, statusCode, err
+			}
+		}
+		time.Sleep(reportSlotWait)
+	}
+}
+
+// reportClient returns a Report connection with a free in-flight slot, looking
+// at every shard address and every connection of it, starting round-robin.
+// When all of them are full it returns the round-robin one and false.
+func (sc *ShardedClient) reportClient() (*client, bool) {
+	maxPending := sc.ReportMaxPendingRequests - 1
+	groupStart := atomic.AddUint64(&sc.roundRobin, 1)
+	var first *client
+	for i := range uint64(len(sc.clients)) {
+		group := sc.clients[(groupStart+i)%uint64(len(sc.clients))]
+		start := atomic.AddUint64(&group.reportRoundRobin, 1)
+		for j := range uint64(len(group.reports)) {
+			cl := group.reports[(start+j)%uint64(len(group.reports))]
+			if first == nil {
+				first = cl
+			}
+			if cl.c.PendingRequests() < maxPending {
+				return cl, true
+			}
+		}
+	}
+	return first, false
+}
+
+// retryableReport reports whether a Report that ended with statusCode failed in
+// transit and may be sent again. NETWORK_ERROR is every failure of the
+// transport: no free slot, a timeout, a broken connection. Everything else is
+// the cloud's verdict on the report itself and would be the same again.
+func retryableReport(statusCode base.RPCServerResponseCode) bool {
+	return statusCode == base.RPCServerResponseCode_NETWORK_ERROR ||
+		statusCode == base.RPCServerResponseCode_SERVICE_UNAVAILABLE
 }
 
 // Touch identifies the user of a request without matching any segment.
@@ -270,11 +378,10 @@ func (sc *ShardedClient) getGroup() *clientsGroup {
 // PendingRequests computes the total number of pending requests across all clients managed by the ShardedClient instance.
 func (sc *ShardedClient) PendingRequests() int {
 	n := 0
-	for _, c := range sc.clients {
-		for i := 0; i < len(c.clients); i++ {
-			n += c.clients[i].c.PendingRequests()
-		}
-
+	for _, group := range sc.clients {
+		group.forEach(func(c *client) {
+			n += c.c.PendingRequests()
+		})
 	}
 	return n
 }
@@ -282,11 +389,10 @@ func (sc *ShardedClient) PendingRequests() int {
 // Reconnects computes and returns the total number of reconnections across all clients in the ShardedClient instance.
 func (sc *ShardedClient) Reconnects() int {
 	n := 0
-	for _, c := range sc.clients {
-		for i := 0; i < len(c.clients); i++ {
-			n += int(c.clients[i].Reconnects())
-		}
-
+	for _, group := range sc.clients {
+		group.forEach(func(c *client) {
+			n += int(c.Reconnects())
+		})
 	}
 	return n
 }
@@ -295,10 +401,17 @@ func (sc *ShardedClient) Reconnects() int {
 // requests in flight per shard address - 10 ms of 300k requests a second. 48 is
 // a multiple of 3, so the connections split evenly over three cloud nodes behind
 // one balancer. See README.md, Throughput Sizing.
+//
+// Reports get 6 connections of 256 of their own, about 1500 in flight per shard
+// address, and the same multiple of 3.
 const (
 	defaultMaxRequestDuration             = time.Second
 	defaultMaximumSimultaneousConnections = 48
 	defaultMaxPendingRequests             = 64
+	defaultReportConnections              = 6
+	defaultReportMaxPendingRequests       = 256
+	defaultReportRetries                  = 3
+	defaultReportRetryBackoff             = 50 * time.Millisecond
 	defaultBufferSize                     = 4 * 1024
 )
 
@@ -322,7 +435,7 @@ func newClient(cfg *Configuration, tlsConfig *tls.Config) *ShardedClient {
 		shard := &clientsGroup{}
 		dialer := newDNSDialer(shardAddr, cfg.MaxDialDuration, cfg.DNSRefreshInterval)
 
-		for i := 0; i < cfg.MaximumSimultaneousConnections; i++ {
+		newConn := func(maxPendingRequests int) *client {
 			rpc := &client{
 				maxRequestDuration: cfg.MaxRequestDuration,
 				metricGroups:       metrics,
@@ -337,7 +450,7 @@ func newClient(cfg *Configuration, tlsConfig *tls.Config) *ShardedClient {
 					// High-read timeout helps avoid frequent reconnects on mostly idle connections.
 					ReadTimeout:        time.Minute,
 					WriteTimeout:       cfg.MaxRequestDuration * 10,
-					MaxPendingRequests: cfg.MaxPendingRequests,
+					MaxPendingRequests: maxPendingRequests,
 					CompressType:       fastrpc.CompressSnappy,
 					WriteBufferSize:    cfg.WriteBufferSize,
 					ReadBufferSize:     cfg.ReadBufferSize,
@@ -353,8 +466,14 @@ func newClient(cfg *Configuration, tlsConfig *tls.Config) *ShardedClient {
 				rpcRef.onConnDialed(conn)
 				return conn, nil
 			}
+			return rpc
+		}
 
-			shard.clients = append(shard.clients, rpc)
+		for i := 0; i < cfg.MaximumSimultaneousConnections; i++ {
+			shard.clients = append(shard.clients, newConn(cfg.MaxPendingRequests))
+		}
+		for i := 0; i < cfg.ReportConnections; i++ {
+			shard.reports = append(shard.reports, newConn(cfg.ReportMaxPendingRequests))
 		}
 
 		sc.clients = append(sc.clients, shard)
@@ -386,6 +505,20 @@ func normalizeConfiguration(cfg *Configuration) *Configuration {
 	}
 	if normalized.MaxPendingRequests <= 0 {
 		normalized.MaxPendingRequests = defaultMaxPendingRequests
+	}
+	if normalized.ReportConnections <= 0 {
+		normalized.ReportConnections = defaultReportConnections
+	}
+	if normalized.ReportMaxPendingRequests <= 0 {
+		normalized.ReportMaxPendingRequests = defaultReportMaxPendingRequests
+	}
+	if normalized.ReportRetries == 0 {
+		normalized.ReportRetries = defaultReportRetries
+	} else if normalized.ReportRetries < 0 {
+		normalized.ReportRetries = 0
+	}
+	if normalized.ReportRetryBackoff <= 0 {
+		normalized.ReportRetryBackoff = defaultReportRetryBackoff
 	}
 	if normalized.ReadBufferSize <= 0 {
 		normalized.ReadBufferSize = defaultBufferSize
