@@ -32,6 +32,9 @@ type Config struct {
 	// LinkPartners are the telecoms (client certificate UUIDs) granted Link;
 	// everyone else gets FORBIDDEN, as from the cloud.
 	LinkPartners []uuid.UUID
+	// IdentPartners are the partners (client certificate UUIDs) granted Ident;
+	// everyone else gets FORBIDDEN, as from the cloud.
+	IdentPartners []uuid.UUID
 	// TargetStatus lets tests force Target failures. UNKNOWN means OK.
 	TargetStatus base.RPCServerResponseCode
 	// ReportBuffer controls how many Report requests are retained for tests. Defaults to 8.
@@ -260,6 +263,8 @@ func (s *Server) handle(ctxv fastrpc.HandlerCtx) fastrpc.HandlerCtx {
 		s.handleTouch(ctx, partnerID)
 	case contract.Link:
 		s.handleLink(ctx, partnerID)
+	case contract.Ident:
+		s.handleIdent(ctx, partnerID)
 	default:
 		writeError(ctx, base.RPCServerResponseCode_INVALID_REQUEST, fmt.Errorf("unsupported request name: %s", ctx.Request.GetName()))
 	}
@@ -381,9 +386,48 @@ func (s *Server) handleLink(ctx *contract.RequestCtx, partnerID uuid.UUID) {
 	ctx.Response.SetStatusCode(base.RPCServerResponseCode_OK)
 }
 
+// IdentUserID is the user id the test cloud answers a granted Ident with, for
+// a tracking id it issued, whoever the caller.
+const IdentUserID = "test-cloud-ident-user"
+
+func (s *Server) handleIdent(ctx *contract.RequestCtx, partnerID uuid.UUID) {
+	if !slices.Contains(s.cfg.IdentPartners, partnerID) {
+		writeError(ctx, base.RPCServerResponseCode_FORBIDDEN, fmt.Errorf("ident is not granted to %s", partnerID))
+		return
+	}
+
+	req := &base.IdentRequest{}
+	if err := proto.Unmarshal(ctx.Request.Value(), req); err != nil {
+		writeError(ctx, base.RPCServerResponseCode_INVALID_REQUEST, fmt.Errorf("cannot unmarshal ident request: %w", err))
+		return
+	}
+	if len(req.GetTrackingId()) == 0 {
+		writeError(ctx, base.RPCServerResponseCode_INVALID_REQUEST, fmt.Errorf("ident request has no tracking id"))
+		return
+	}
+
+	// A tracking id the test cloud issued is one of its Targets; any other is
+	// a session it does not hold.
+	resp := &base.IdentResponse{}
+	if s.issuedTrackingID(req.GetTrackingId()) {
+		resp.UserId = []byte(IdentUserID)
+	}
+	writeProto(ctx, base.RPCServerResponseCode_OK, resp)
+}
+
 func (s *Server) nextTrackingID() []byte {
 	n := s.counter.Add(1)
 	return []byte(fmt.Sprintf("%04X%012X", s.cfg.ServerID, n))
+}
+
+// issuedTrackingID reports whether id is a tracking id this test cloud issued.
+func (s *Server) issuedTrackingID(id []byte) bool {
+	var serverID uint16
+	var n uint64
+	if _, err := fmt.Sscanf(string(id), "%04X%012X", &serverID, &n); err != nil {
+		return false
+	}
+	return serverID == s.cfg.ServerID && n > 0 && n <= s.counter.Load()
 }
 
 func writeProto(ctx *contract.RequestCtx, statusCode base.RPCServerResponseCode, msg proto.Message) {

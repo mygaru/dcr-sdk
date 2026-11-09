@@ -429,6 +429,29 @@ fmt.Printf("match=%v\n", resp.GetMatch())
 fmt.Printf("frequency=%v\n", resp.GetFrequency())
 ```
 
+### `Ident`
+
+`Ident` turns the tracking id of a Target into the user's id (PUID) for the
+caller: the user that Target identified, encrypted for the partner of the client
+certificate. It is for internal use, and the cloud grants it per client
+certificate; any other caller gets `FORBIDDEN`.
+
+```go
+resp, status, err := cli.Ident(&base.IdentRequest{
+    TrackingId: targetResp.GetTrackingId(),
+})
+```
+
+| Outcome | Status | `UserId` |
+|---|---|---|
+| the Target identified a user | `OK` | the PUID for the caller |
+| the session is gone, or the Target identified no user | `OK` | empty |
+| missing or malformed tracking id | `INVALID_REQUEST` | - |
+| the cloud node that served the Target could not be asked | `SERVICE_UNAVAILABLE` | - |
+
+The cloud keeps a Target's session for a limited time, so call `Ident` soon
+after the Target.
+
 ---
 
 ### `Report`

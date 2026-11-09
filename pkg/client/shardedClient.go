@@ -305,6 +305,24 @@ func (sc *ShardedClient) Link(req *base.LinkRequest) (base.RPCServerResponseCode
 	return statusCode, err
 }
 
+// Ident returns the user's id (PUID) for the caller: the user the Target that
+// returned req's tracking id identified, encrypted for the partner of this
+// client's certificate.
+//
+// For internal use: the cloud grants it per client certificate - any other
+// caller gets FORBIDDEN. A missing or malformed tracking id is
+// INVALID_REQUEST. The user id is empty, with OK, when the cloud no longer
+// holds the Target's session or the Target identified no user;
+// SERVICE_UNAVAILABLE means the cloud node that served the Target could not be
+// asked, and a retry may succeed.
+func (sc *ShardedClient) Ident(req *base.IdentRequest) (*base.IdentResponse, base.RPCServerResponseCode, error) {
+	res, statusCode, err := sc.getGroup().getClient().doUnary(req, &base.IdentResponse{}, contract.Ident)
+	if nil != err {
+		return nil, statusCode, err
+	}
+	return res.(*base.IdentResponse), statusCode, nil
+}
+
 // applyPayers resolves the request-level payer and hands it to stamp, which
 // writes it onto the request and onto every rule that names no payer of its own.
 //

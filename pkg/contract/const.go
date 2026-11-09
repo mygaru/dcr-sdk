@@ -20,7 +20,11 @@ const (
 	// telecom.
 	Link RPCRegister = 5
 
-	MaxRequestIdentifier = Link
+	// Ident turns the tracking id of a Target into the user's id for a
+	// partner.
+	Ident RPCRegister = 6
+
+	MaxRequestIdentifier = Ident
 )
 
 func (r RPCRegister) String() string {
@@ -35,6 +39,8 @@ func (r RPCRegister) String() string {
 		return "auth"
 	case Link:
 		return "link"
+	case Ident:
+		return "ident"
 	default:
 		panic("unknown")
 	}

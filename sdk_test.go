@@ -589,3 +589,49 @@ func TestLinkIsForbiddenUnlessGranted(t *testing.T) {
 		t.Fatalf("Link = %s, %v; want FORBIDDEN", sc, err)
 	}
 }
+
+func TestIdentReturnsTheUserIDOfATarget(t *testing.T) {
+	server := startTestCloud(t, testcloud.Config{IdentPartners: []uuid.UUID{testCerts.ClientID}})
+	rpc := newTestClient(server.Addr(), 1)
+
+	target, sc, err := rpc.Target(&base.TargetRequest{
+		Uids: []*base.UID{{Id: []byte(uuid.NewString()), Type: base.UID_DEVICE_ID}},
+	})
+	if err != nil {
+		t.Fatalf("target: %s: %v", sc, err)
+	}
+
+	resp, sc, err := rpc.Ident(&base.IdentRequest{TrackingId: target.GetTrackingId()})
+	if err != nil || sc != base.RPCServerResponseCode_OK {
+		t.Fatalf("Ident = %s, %v; want OK", sc, err)
+	}
+	if string(resp.GetUserId()) != testcloud.IdentUserID {
+		t.Fatalf("user id = %q, want %q", resp.GetUserId(), testcloud.IdentUserID)
+	}
+
+	// a session the cloud does not hold is no user, not an error
+	resp, sc, err = rpc.Ident(&base.IdentRequest{TrackingId: []byte("7EEE000000000001")})
+	if err != nil || sc != base.RPCServerResponseCode_OK || len(resp.GetUserId()) != 0 {
+		t.Fatalf("Ident(unknown) = %v, %s, %v; want an empty user id and OK", resp, sc, err)
+	}
+}
+
+func TestIdentRejectsBadRequests(t *testing.T) {
+	server := startTestCloud(t, testcloud.Config{IdentPartners: []uuid.UUID{testCerts.ClientID}})
+	rpc := newTestClient(server.Addr(), 1)
+
+	// an empty request is refused before it is sent
+	if _, sc, err := rpc.Ident(&base.IdentRequest{}); err == nil {
+		t.Errorf("Ident without a tracking id = %s, nil; want an error", sc)
+	}
+}
+
+func TestIdentIsForbiddenUnlessGranted(t *testing.T) {
+	server := startTestCloud(t, testcloud.Config{IdentPartners: []uuid.UUID{uuid.New()}})
+	rpc := newTestClient(server.Addr(), 1)
+
+	_, sc, err := rpc.Ident(&base.IdentRequest{TrackingId: []byte("0400000000000001")})
+	if err == nil || sc != base.RPCServerResponseCode_FORBIDDEN {
+		t.Fatalf("Ident = %s, %v; want FORBIDDEN", sc, err)
+	}
+}

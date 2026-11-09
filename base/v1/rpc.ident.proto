@@ -1,0 +1,27 @@
+edition = "2023";
+
+option java_outer_classname = "myGaruSDK";
+// NOTE: go_package intentionally names the PUBLIC module path
+// (github.com/mygaru/dcr-sdk), not this repository's own module path; see the
+// same note in rpc.target.proto and PROTO_GO_MODULE in the Makefile.
+option go_package = "github.com/mygaru/dcr-sdk/gen/base1;base";
+
+option features.field_presence = IMPLICIT;
+
+package ident;
+
+// Ident turns the tracking id of a Target into the user's id for the caller:
+// the user the Target identified, encrypted for the partner of the client
+// certificate. Granted per client certificate; any other caller gets
+// FORBIDDEN.
+message IdentRequest {
+  // tracking_id is the TargetResponse.tracking_id of the Target to identify
+  // the user of. REQUIRED.
+  bytes tracking_id = 1;
+}
+
+message IdentResponse {
+  // The user's id (PUID) for the caller; empty when the cloud no longer holds
+  // the Target's session or the Target identified no user.
+  bytes user_id = 1;
+}
